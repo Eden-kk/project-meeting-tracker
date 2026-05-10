@@ -19,7 +19,7 @@ function currentStatus(entry: Entry): Meeting['status'] {
 }
 
 export const handlers = [
-  http.post('/api/conversations/import', async () => {
+  http.post('*/api/conversations/import', async () => {
     const ids = nextId();
     const meeting = makeFixtureMeeting(ids.meeting_id, ids.artifact_id);
     meetings.set(ids.meeting_id, { meeting, createdAt: Date.now() });
@@ -31,7 +31,7 @@ export const handlers = [
     return HttpResponse.json(body, { status: 202 });
   }),
 
-  http.get('/api/meetings/:id', ({ params }) => {
+  http.get('*/api/meetings/:id', ({ params }) => {
     const id = params.id as string;
     const entry = meetings.get(id);
     if (!entry) return new HttpResponse(null, { status: 404 });
@@ -39,7 +39,7 @@ export const handlers = [
     return HttpResponse.json<Meeting>({ ...entry.meeting, status });
   }),
 
-  http.get('/api/meetings/:id/transcript', ({ params }) => {
+  http.get('*/api/meetings/:id/transcript', ({ params }) => {
     const id = params.id as string;
     const entry = meetings.get(id);
     if (!entry) return new HttpResponse(null, { status: 404 });
