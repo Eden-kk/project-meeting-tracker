@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:05.200
+<v Alice>Thanks for joining. Let's talk about the auth migration timeline.
+
+00:00:05.500 --> 00:00:11.800
+<v Bob>I think we should delay the provider switch until staging secrets are ready.
+
+00:00:12.000 --> 00:00:15.400
+<v Alice>Agreed. Let's also confirm we have rollback ready.
+
+00:00:15.600 --> 00:00:19.200
+<v Bob>I'll write the rollback runbook by Friday.
+
+00:00:19.500 --> 00:00:25.800
+<v Carol>One concern from the user side — the empty dashboard after signup is causing confusion.
+
+00:00:26.000 --> 00:00:30.400
+<v Alice>Good point. Let's open a separate ticket for the onboarding fix.

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/conversation_artifact.schema.json",
+  "title": "ConversationArtifact",
+  "description": "Top-level record for any input the system has accepted: a live capture or an imported file/text. Becomes a Meeting once processing starts. Source of truth: design-doc §8.",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "workspace_id",
+    "source_type",
+    "capture_mode",
+    "title",
+    "created_by",
+    "created_at",
+    "visibility",
+    "processing_status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "live_voice",
+        "zoom_rtms",
+        "voice_file",
+        "transcript_file",
+        "pasted_transcript"
+      ]
+    },
+    "capture_mode": {
+      "type": "string",
+      "enum": ["live", "imported"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": ["private", "workspace", "shared"],
+      "default": "private"
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "raw_file_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "Set for voice_file and zoom_rtms recordings; null for transcript-only inputs."
+    },
+    "raw_text": {
+      "type": ["string", "null"],
+      "description": "Set for transcript_file and pasted_transcript inputs; null otherwise."
+    },
+    "processing_status": {
+      "type": "string",
+      "enum": [
+        "received",
+        "transcribing",
+        "diarizing",
+        "parsing",
+        "normalizing",
+        "extracting",
+        "ready",
+        "failed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/speaker_segment.schema.json",
+  "title": "SpeakerSegment",
+  "description": "One speaker turn within a normalized transcript. Source of truth: design-doc §9.",
+  "type": "object",
+  "required": ["segment_id", "text", "is_final", "source_type"],
+  "additionalProperties": false,
+  "properties": {
+    "segment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "speaker_id": {
+      "type": ["string", "null"],
+      "description": "Diarization-assigned id (e.g. speaker_1) or 'unknown' for transcript-only inputs without speaker info."
+    },
+    "speaker_name": {
+      "type": ["string", "null"]
+    },
+    "start_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Null when source has no timestamps (e.g. pasted_transcript without timing)."
+    },
+    "end_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "text": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "live_voice",
+        "zoom_rtms",
+        "voice_file",
+        "transcript_file",
+        "pasted_transcript"
+      ]
+    },
+    "is_final": {
+      "type": "boolean",
+      "description": "False for interim live STT output; true for finalized turns and any imported segment."
+    }
+  }
+}

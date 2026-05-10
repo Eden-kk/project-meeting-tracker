@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/memory_card.schema.json",
+  "title": "MemoryCard",
+  "description": "Evidence-backed memory item Hermes extracts from a meeting. Drafted in Phase 2; storage layer (Phase 1, worktree D) needs the schema upfront. Source of truth: design-doc §13.",
+  "type": "object",
+  "required": [
+    "memory_card_id",
+    "meeting_id",
+    "state",
+    "type",
+    "title",
+    "content",
+    "source_chunk_ids",
+    "confidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "memory_card_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "meeting_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "enum": ["candidate", "draft", "committed", "rejected"]
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "decision",
+        "action_item",
+        "pain_point",
+        "quote",
+        "requirement",
+        "risk",
+        "open_question",
+        "technical_detail"
+      ]
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "content": { "type": "string" },
+    "source_chunk_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "source_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "source_end_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "speakers_json": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of speaker names/ids implicated by this card; mirrors speaker_segments rows."
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "needs_review": { "type": "boolean", "default": true },
+    "created_by_agent": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}
