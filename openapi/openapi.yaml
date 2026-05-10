@@ -130,7 +130,8 @@ components:
         meeting_id:  { type: string }
         processing_status:
           type: string
-          enum: [received, transcribing, diarizing, parsing]
+          description: At 202 time the artifact is always 'received'. Subsequent state transitions are observed via GET /api/meetings/{id}.
+          enum: [received]
 
     Meeting:
       description: Mirrors schemas/meeting.schema.json

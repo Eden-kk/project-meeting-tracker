@@ -19,6 +19,9 @@ CREATE INDEX idx_patterns_meeting ON meeting_patterns(meeting_id);
 CREATE TABLE dynamic_schemas (
     id              TEXT PRIMARY KEY,
     meeting_id      TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    -- selected_blocks: free-form JSON object listing extraction blocks
+    -- Hermes chose for this meeting. Shape governed by design-doc §12;
+    -- intentionally schemaless so blocks can evolve without migrations.
     selected_blocks JSONB NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
