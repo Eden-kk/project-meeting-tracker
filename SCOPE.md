@@ -9,7 +9,7 @@ blob storage adapter, and the processing-status state machine.
 Tech:
 - Python 3.12 + FastAPI
 - SQLAlchemy 2.x + Alembic (apply the migrations from worktree A)
-- Postgres in production; SQLite for local dev
+- Postgres for both production and local dev (use a docker-compose Postgres for local). SQLite is NOT a supported target — JSONB / TIMESTAMPTZ / partial indexes are used.
 - Local filesystem for blob storage in dev; pluggable for S3 later
 
 ## Consumes (from worktree A, branch `phase1/contracts`)
