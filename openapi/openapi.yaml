@@ -26,6 +26,7 @@ paths:
           multipart/form-data:
             schema:
               type: object
+              description: "Server enforces: exactly one of voice_file, transcript_file, or pasted_transcript MUST be provided. OpenAPI 3.0 cannot express this constraint at the schema level; the server returns 400 'no_input' if zero are provided and 400 'multiple_inputs' if more than one is provided."
               required: [workspace_id, title]
               properties:
                 workspace_id:
@@ -56,7 +57,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ImportAccepted'
         '400':
-          description: Invalid input (e.g. no body provided, or multiple bodies).
+          description: "Invalid input. Codes: no_input (zero body parts present), multiple_inputs (more than one body part present), invalid_format (unsupported file type)."
 
   /api/meetings/{id}:
     get:
@@ -129,7 +130,7 @@ components:
         meeting_id:  { type: string }
         processing_status:
           type: string
-          enum: [received, transcribing, parsing]
+          enum: [received, transcribing, diarizing, parsing]
 
     Meeting:
       description: Mirrors schemas/meeting.schema.json

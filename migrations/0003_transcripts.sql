@@ -1,4 +1,5 @@
 -- 0003_transcripts.sql
+-- Postgres dialect (TIMESTAMPTZ, JSONB, partial indexes). SQLite is not a supported target.
 -- Participants, speaker segments, transcript chunks.
 -- Source of truth: design-doc §16.
 
@@ -25,7 +26,7 @@ CREATE TABLE speaker_segments (
     source_type   TEXT NOT NULL CHECK (source_type IN (
                        'live_voice', 'zoom_rtms', 'voice_file',
                        'transcript_file', 'pasted_transcript')),
-    is_final      BOOLEAN NOT NULL DEFAULT TRUE
+    is_final      BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX idx_segments_meeting_time ON speaker_segments(meeting_id, start_ms);

@@ -1,4 +1,5 @@
 -- 0002_conversations.sql
+-- Postgres dialect (TIMESTAMPTZ, JSONB, partial indexes). SQLite is not a supported target.
 -- Conversation artifacts, meetings, meeting sources.
 -- Source of truth: design-doc §16.
 
@@ -18,7 +19,8 @@ CREATE TABLE conversation_artifacts (
                             'received', 'transcribing', 'diarizing', 'parsing',
                             'normalizing', 'extracting', 'ready', 'failed')),
     visibility         TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN (
-                            'private', 'workspace', 'shared'))
+                            'private', 'workspace', 'shared')),
+    labels             JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE INDEX idx_artifacts_workspace ON conversation_artifacts(workspace_id);

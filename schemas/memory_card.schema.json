@@ -18,11 +18,11 @@
   "properties": {
     "memory_card_id": {
       "type": "string",
-      "pattern": "^mem_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "meeting_id": {
       "type": "string",
-      "pattern": "^m_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "state": {
       "type": "string",
@@ -50,9 +50,10 @@
     },
     "source_start_ms": { "type": ["integer", "null"], "minimum": 0 },
     "source_end_ms": { "type": ["integer", "null"], "minimum": 0 },
-    "speakers": {
+    "speakers_json": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "List of speaker names/ids implicated by this card; mirrors speaker_segments rows."
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
     "needs_review": { "type": "boolean", "default": true },

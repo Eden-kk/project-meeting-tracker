@@ -1,4 +1,5 @@
 -- 0005_governance.sql
+-- Postgres dialect (TIMESTAMPTZ, JSONB, partial indexes). SQLite is not a supported target.
 -- Sharing + audit logs.
 -- Source of truth: design-doc §16, §19.
 

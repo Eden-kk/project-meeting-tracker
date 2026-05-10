@@ -9,7 +9,7 @@
   "properties": {
     "segment_id": {
       "type": "string",
-      "pattern": "^seg_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "speaker_id": {
       "type": ["string", "null"],

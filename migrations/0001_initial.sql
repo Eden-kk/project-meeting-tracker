@@ -1,4 +1,5 @@
 -- 0001_initial.sql
+-- Postgres dialect (TIMESTAMPTZ, JSONB, partial indexes). SQLite is not a supported target.
 -- Workspaces + users. Postgres dialect.
 -- Source of truth: design-doc §16.
 

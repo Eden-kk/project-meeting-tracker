@@ -9,7 +9,7 @@
   "properties": {
     "meeting_id": {
       "type": "string",
-      "pattern": "^m_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "segments": {
       "type": "array",

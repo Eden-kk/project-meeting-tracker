@@ -1,4 +1,5 @@
 -- 0004_memory.sql
+-- Postgres dialect (TIMESTAMPTZ, JSONB, partial indexes). SQLite is not a supported target.
 -- Meeting patterns, dynamic schemas, memory cards, meeting notes.
 -- Source of truth: design-doc §16.
 

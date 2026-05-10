@@ -9,11 +9,11 @@
   "properties": {
     "meeting_id": {
       "type": "string",
-      "pattern": "^m_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "artifact_id": {
       "type": "string",
-      "pattern": "^art_[A-Za-z0-9]+$"
+      "minLength": 1
     },
     "status": {
       "type": "string",
