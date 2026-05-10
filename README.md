@@ -40,10 +40,17 @@ python -c "from faster_whisper import WhisperModel; WhisperModel('medium', devic
 
 ## Running tests
 
+The bilingual round-trip test (`tests/test_voice_ingest.py`) needs `large-v3`
+on a CUDA device — `medium` on CPU misidentifies the English half of the
+Edge-TTS fixture as Chinese and fails the per-language similarity threshold.
+
 ```bash
 source .venv/bin/activate
-pytest -xvs tests/
+WHISPER_MODEL=large-v3 WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=float16 \
+  pytest -xvs tests/
 ```
+
+API tests run fine on the defaults (`medium`, cpu/int8).
 
 ## Running the HTTP server
 
