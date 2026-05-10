@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: Tracker API — Phase 1 surface
+  version: 0.1.0
+  description: |
+    Phase-1 endpoints for the Hermes-powered meeting memory tracker.
+    Only the routes needed by Phase 1 (shared import + basic review) are
+    defined here. Phase 2+ routes from design-doc §17 are listed as
+    comments and will be added in subsequent phases.
+
+servers:
+  - url: http://localhost:8000
+
+paths:
+  /api/conversations/import:
+    post:
+      summary: Import a conversation (voice file, transcript file, or pasted text)
+      description: |
+        Single entrance for all imported conversations. The router (worktree D)
+        inspects the request, persists a ConversationArtifact + Meeting,
+        and dispatches to the voice-ingest pipeline (worktree B) or the
+        transcript-ingest pipeline (worktree C).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [workspace_id, title]
+              properties:
+                workspace_id:
+                  type: string
+                title:
+                  type: string
+                visibility:
+                  type: string
+                  enum: [private, workspace, shared]
+                  default: private
+                labels:
+                  type: array
+                  items: { type: string }
+                voice_file:
+                  type: string
+                  format: binary
+                  description: Audio file. Use this OR transcript_file OR pasted_transcript.
+                transcript_file:
+                  type: string
+                  format: binary
+                pasted_transcript:
+                  type: string
+      responses:
+        '202':
+          description: Accepted; processing begins asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportAccepted'
+        '400':
+          description: Invalid input (e.g. no body provided, or multiple bodies).
+
+  /api/meetings/{id}:
+    get:
+      summary: Get a meeting record
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meeting'
+        '404':
+          description: Not found
+
+  /api/meetings/{id}/transcript:
+    get:
+      summary: Get the normalized transcript for a meeting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NormalizedTranscript'
+        '404':
+          description: Not found
+        '409':
+          description: Meeting exists but transcript not yet ready.
+
+  # --- Phase 2+ endpoints (NOT defined in this spec) ----------------------
+  # POST /api/live-meetings/start
+  # POST /api/live-meetings/{id}/audio-frame
+  # POST /api/live-meetings/{id}/stop
+  # POST /api/zoom/rtms/webhook
+  # GET  /api/meetings/{id}/chunks
+  # GET  /api/meetings/{id}/memory-cards
+  # POST /api/meetings/{id}/finalize
+  # POST /api/memory-cards
+  # PATCH /api/memory-cards/{id}
+  # POST /api/memory-cards/{id}/commit
+  # POST /api/memory-cards/{id}/reject
+  # POST /api/search/meetings
+  # POST /api/qa/meeting
+  # POST /api/qa/global
+  # GET  /api/hermes/live-meetings/{id}/state
+  # GET  /api/hermes/meetings/{id}/recent-chunks
+  # POST /api/hermes/meetings/{id}/pattern
+  # POST /api/hermes/meetings/{id}/schema
+  # POST /api/hermes/memory-cards
+  # POST /api/hermes/meetings/{id}/finalize
+  # ------------------------------------------------------------------------
+
+components:
+  schemas:
+    ImportAccepted:
+      type: object
+      required: [artifact_id, meeting_id, processing_status]
+      properties:
+        artifact_id: { type: string }
+        meeting_id:  { type: string }
+        processing_status:
+          type: string
+          enum: [received, transcribing, parsing]
+
+    Meeting:
+      description: Mirrors schemas/meeting.schema.json
+      type: object
+      required: [meeting_id, artifact_id, status, evidence_quality]
+      properties:
+        meeting_id:        { type: string }
+        artifact_id:       { type: string }
+        status:
+          type: string
+          enum: [live, processing, ready, finalized, failed]
+        started_at:        { type: string, format: date-time, nullable: true }
+        ended_at:          { type: string, format: date-time, nullable: true }
+        finalized_at:      { type: string, format: date-time, nullable: true }
+        detected_pattern:  { $ref: '#/components/schemas/MeetingPattern', nullable: true }
+        current_schema:    { type: object, nullable: true }
+        evidence_quality:
+          type: string
+          enum: [unknown, high, medium, low, lowest]
+
+    MeetingPattern:
+      description: Mirrors schemas/meeting_pattern.schema.json
+      type: object
+      required: [primary_pattern, confidence]
+      properties:
+        primary_pattern:    { type: string }
+        secondary_patterns:
+          type: array
+          items: { type: string }
+        interaction_style: { type: string, nullable: true }
+        confidence:        { type: number, minimum: 0, maximum: 1 }
+        reason:            { type: string, nullable: true }
+
+    NormalizedTranscript:
+      description: Mirrors schemas/normalized_transcript.schema.json
+      type: object
+      required: [meeting_id, segments]
+      properties:
+        meeting_id: { type: string }
+        segments:
+          type: array
+          items: { $ref: '#/components/schemas/SpeakerSegment' }
+
+    SpeakerSegment:
+      description: Mirrors schemas/speaker_segment.schema.json
+      type: object
+      required: [segment_id, text, is_final, source_type]
+      properties:
+        segment_id:   { type: string }
+        speaker_id:   { type: string, nullable: true }
+        speaker_name: { type: string, nullable: true }
+        start_ms:     { type: integer, minimum: 0, nullable: true }
+        end_ms:       { type: integer, minimum: 0, nullable: true }
+        text:         { type: string }
+        confidence:   { type: number, minimum: 0, maximum: 1, nullable: true }
+        source_type:
+          type: string
+          enum: [live_voice, zoom_rtms, voice_file, transcript_file, pasted_transcript]
+        is_final:     { type: boolean }

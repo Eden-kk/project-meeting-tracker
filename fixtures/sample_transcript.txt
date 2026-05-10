@@ -1,0 +1,6 @@
+Alice: Thanks for joining. Let's talk about the auth migration timeline.
+Bob: I think we should delay the provider switch until staging secrets are ready.
+Alice: Agreed. Let's also confirm we have rollback ready.
+Bob: I'll write the rollback runbook by Friday.
+Carol: One concern from the user side — the empty dashboard after signup is causing confusion.
+Alice: Good point. Let's open a separate ticket for the onboarding fix.

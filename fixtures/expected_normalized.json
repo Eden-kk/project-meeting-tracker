@@ -1,0 +1,71 @@
+{
+  "meeting_id": "m_fixture001",
+  "segments": [
+    {
+      "segment_id": "seg_001",
+      "speaker_id": "speaker_1",
+      "speaker_name": "Alice",
+      "start_ms": 0,
+      "end_ms": 5200,
+      "text": "Thanks for joining. Let's talk about the auth migration timeline.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    },
+    {
+      "segment_id": "seg_002",
+      "speaker_id": "speaker_2",
+      "speaker_name": "Bob",
+      "start_ms": 5500,
+      "end_ms": 11800,
+      "text": "I think we should delay the provider switch until staging secrets are ready.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    },
+    {
+      "segment_id": "seg_003",
+      "speaker_id": "speaker_1",
+      "speaker_name": "Alice",
+      "start_ms": 12000,
+      "end_ms": 15400,
+      "text": "Agreed. Let's also confirm we have rollback ready.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    },
+    {
+      "segment_id": "seg_004",
+      "speaker_id": "speaker_2",
+      "speaker_name": "Bob",
+      "start_ms": 15600,
+      "end_ms": 19200,
+      "text": "I'll write the rollback runbook by Friday.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    },
+    {
+      "segment_id": "seg_005",
+      "speaker_id": "speaker_3",
+      "speaker_name": "Carol",
+      "start_ms": 19500,
+      "end_ms": 25800,
+      "text": "One concern from the user side — the empty dashboard after signup is causing confusion.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    },
+    {
+      "segment_id": "seg_006",
+      "speaker_id": "speaker_1",
+      "speaker_name": "Alice",
+      "start_ms": 26000,
+      "end_ms": 30400,
+      "text": "Good point. Let's open a separate ticket for the onboarding fix.",
+      "confidence": null,
+      "source_type": "transcript_file",
+      "is_final": true
+    }
+  ]
+}

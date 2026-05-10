@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/normalized_transcript.schema.json",
+  "title": "NormalizedTranscript",
+  "description": "The unified transcript object every input path must produce. After normalization the downstream pipeline treats live, voice-file, and transcript inputs identically. Source of truth: design-doc §9.",
+  "type": "object",
+  "required": ["meeting_id", "segments"],
+  "additionalProperties": false,
+  "properties": {
+    "meeting_id": {
+      "type": "string",
+      "pattern": "^m_[A-Za-z0-9]+$"
+    },
+    "segments": {
+      "type": "array",
+      "items": { "$ref": "speaker_segment.schema.json" }
+    }
+  }
+}

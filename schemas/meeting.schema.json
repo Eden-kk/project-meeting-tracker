@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/meeting.schema.json",
+  "title": "Meeting",
+  "description": "Processing/finalization record built on top of a ConversationArtifact. Source of truth: design-doc §8.",
+  "type": "object",
+  "required": ["meeting_id", "artifact_id", "status", "evidence_quality"],
+  "additionalProperties": false,
+  "properties": {
+    "meeting_id": {
+      "type": "string",
+      "pattern": "^m_[A-Za-z0-9]+$"
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "^art_[A-Za-z0-9]+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["live", "processing", "ready", "finalized", "failed"]
+    },
+    "started_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "finalized_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "detected_pattern": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "meeting_pattern.schema.json" }
+      ]
+    },
+    "current_schema": {
+      "type": ["object", "null"],
+      "description": "The selected_blocks object Hermes is currently using for this meeting; see design-doc §12."
+    },
+    "evidence_quality": {
+      "type": "string",
+      "enum": ["unknown", "high", "medium", "low", "lowest"],
+      "description": "Per design-doc §9 evidence-quality table."
+    }
+  }
+}

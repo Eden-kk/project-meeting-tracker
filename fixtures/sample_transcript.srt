@@ -1,0 +1,23 @@
+1
+00:00:00,000 --> 00:00:05,200
+Alice: Thanks for joining. Let's talk about the auth migration timeline.
+
+2
+00:00:05,500 --> 00:00:11,800
+Bob: I think we should delay the provider switch until staging secrets are ready.
+
+3
+00:00:12,000 --> 00:00:15,400
+Alice: Agreed. Let's also confirm we have rollback ready.
+
+4
+00:00:15,600 --> 00:00:19,200
+Bob: I'll write the rollback runbook by Friday.
+
+5
+00:00:19,500 --> 00:00:25,800
+Carol: One concern from the user side — the empty dashboard after signup is causing confusion.
+
+6
+00:00:26,000 --> 00:00:30,400
+Alice: Good point. Let's open a separate ticket for the onboarding fix.
