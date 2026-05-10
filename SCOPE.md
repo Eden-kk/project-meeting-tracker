@@ -39,6 +39,9 @@ received
   → transcribing (voice path) | parsing (transcript path)
   → normalizing
   → ready
+
+Any state may transition to → failed on irrecoverable error
+(e.g. STT timeout, malformed transcript, storage write failure).
 ```
 
 Phase 2 will add `extracting → ready` after Hermes runs. For Phase 1, ready
