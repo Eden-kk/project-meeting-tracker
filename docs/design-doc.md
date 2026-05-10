@@ -416,7 +416,7 @@ Then the artifact becomes a meeting.
 {
   "meeting_id": "m_123",
   "artifact_id": "art_123",
-  "status": "live | processing | ready | finalized",
+  "status": "live | processing | ready | finalized | failed",
   "detected_pattern": null,
   "current_schema": null,
   "evidence_quality": "unknown"
