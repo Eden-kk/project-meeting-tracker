@@ -5,6 +5,7 @@ Public surface: `transcribe_voice_file(path) -> NormalizedTranscript dict`.
 
 from __future__ import annotations
 
+import logging
 from math import exp
 from pathlib import Path
 from uuid import uuid4
@@ -12,6 +13,9 @@ from uuid import uuid4
 from faster_whisper import WhisperModel
 
 from . import config, schema
+from .diarize import assign_speakers
+
+log = logging.getLogger(__name__)
 
 _model: WhisperModel | None = None
 
@@ -64,6 +68,11 @@ def transcribe_voice_file(
             "source_type": "voice_file",
             "is_final": True,
         })
+
+    try:
+        segments = assign_speakers(path, segments)
+    except Exception as exc:
+        log.warning("diarization failed, single-speaker fallback: %s", exc)
 
     result = {
         "meeting_id": meeting_id or f"m_{uuid4().hex[:12]}",
