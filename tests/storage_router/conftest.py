@@ -14,6 +14,7 @@ from storage_router.db import SessionLocal, engine
 
 # Tables that test suites populate. Order matters for FK cleanup.
 DATA_TABLES = [
+    "memory_cards",
     "speaker_segments",
     "participants",
     "meeting_sources",
