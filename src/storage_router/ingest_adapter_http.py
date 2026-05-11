@@ -18,10 +18,14 @@ from storage_router.models.contracts import NormalizedTranscript
 
 
 def transcribe_voice_file(path: Path) -> NormalizedTranscript:
-    """POST the audio bytes to voice-ingest; return the parsed transcript."""
+    """POST the audio bytes to voice-ingest as multipart; return the parsed transcript.
+
+    voice-ingest's API takes a single multipart field named ``audio``
+    (UploadFile) plus an optional ``meeting_id`` form field.
+    """
     url = settings.voice_ingest_url.rstrip("/") + "/voice/transcribe"
     with open(path, "rb") as f:
-        files = {"file": (path.name, f, "application/octet-stream")}
+        files = {"audio": (path.name, f, "application/octet-stream")}
         resp = httpx.post(url, files=files, timeout=settings.voice_ingest_timeout_seconds)
     resp.raise_for_status()
     return NormalizedTranscript.model_validate(resp.json())
@@ -33,12 +37,21 @@ def parse_transcript(
     *,
     source_type: str = "transcript_file",
 ) -> NormalizedTranscript:
-    """POST the raw text to transcript-ingest; return the parsed transcript."""
+    """POST the raw text to transcript-ingest as multipart form; return the parsed transcript.
+
+    transcript-ingest's API takes ``text`` (Form), ``file`` (UploadFile, optional),
+    ``meeting_id`` (Form), and ``format_hint`` (Form). It does NOT accept JSON.
+    The ``source_type`` arg is ignored — transcript-ingest infers it from
+    content shape (txt/md → pasted_transcript; vtt/srt/json → transcript_file).
+    """
     url = settings.transcript_ingest_url.rstrip("/") + "/transcript/parse"
     body = payload.decode("utf-8") if isinstance(payload, bytes) else payload
+    data = {"text": body}
+    if format:
+        data["format_hint"] = format
     resp = httpx.post(
         url,
-        json={"text": body, "format": format, "source_type": source_type},
+        data=data,
         timeout=settings.transcript_ingest_timeout_seconds,
     )
     resp.raise_for_status()
