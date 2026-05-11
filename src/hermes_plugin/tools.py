@@ -23,6 +23,10 @@ from .schemas import (
     GetMeetingTranscriptOutput,
     SearchMemoryCardsInput,
     SearchMemoryCardsOutput,
+    SearchWorkspaceCardsInput,
+    SearchWorkspaceCardsOutput,
+    SearchWorkspaceTranscriptsInput,
+    SearchWorkspaceTranscriptsOutput,
 )
 
 _AGENT_TAG = "hermes-plugin"
@@ -98,11 +102,46 @@ def finalize_meeting_memory(args: dict, client: StorageRouterClient) -> dict:
     return FinalizeMeetingMemoryOutput.model_validate(raw).model_dump(mode="json")
 
 
+def search_workspace_transcripts(args: dict, client: StorageRouterClient) -> dict:
+    """Wave 4.3: cross-meeting FTS over speaker_segments, workspace-scoped."""
+    try:
+        parsed = SearchWorkspaceTranscriptsInput.model_validate(args)
+    except ValidationError as exc:
+        raise _wrap_validation(exc) from exc
+    try:
+        raw = client.search_workspace_transcripts(
+            parsed.workspace_id, parsed.q, limit=parsed.limit or 10
+        )
+    except StorageUnavailable as exc:
+        raise _wrap_storage(exc) from exc
+    return SearchWorkspaceTranscriptsOutput.model_validate(raw).model_dump(mode="json")
+
+
+def search_workspace_cards(args: dict, client: StorageRouterClient) -> dict:
+    """Wave 4.3: cross-meeting FTS over memory_cards, workspace-scoped."""
+    try:
+        parsed = SearchWorkspaceCardsInput.model_validate(args)
+    except ValidationError as exc:
+        raise _wrap_validation(exc) from exc
+    try:
+        raw = client.search_workspace_cards(
+            parsed.workspace_id,
+            parsed.q,
+            type=parsed.type,
+            limit=parsed.limit or 10,
+        )
+    except StorageUnavailable as exc:
+        raise _wrap_storage(exc) from exc
+    return SearchWorkspaceCardsOutput.model_validate(raw).model_dump(mode="json")
+
+
 TOOL_REGISTRY: dict[str, Callable[[dict, StorageRouterClient], dict]] = {
     "get_meeting_transcript": get_meeting_transcript,
     "search_memory_cards": search_memory_cards,
     "create_draft_memory_card": create_draft_memory_card,
     "finalize_meeting_memory": finalize_meeting_memory,
+    "search_workspace_transcripts": search_workspace_transcripts,
+    "search_workspace_cards": search_workspace_cards,
 }
 
 
@@ -117,6 +156,17 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "finalize_meeting_memory": (
         "Finalize a meeting: commit drafts and freeze the memory record."
     ),
+    "search_workspace_transcripts": (
+        "Cross-meeting Postgres FTS over transcript segments within a "
+        "workspace. Returns ranked hits keyed by segment_id + meeting_id "
+        "so the caller can cite them with [meeting:<id>:seg:<id>]."
+    ),
+    "search_workspace_cards": (
+        "Cross-meeting Postgres FTS over memory cards within a workspace, "
+        "optionally filtered by card type. Returns ranked hits keyed by "
+        "memory_card_id + meeting_id so the caller can cite them with "
+        "[meeting:<id>:card:<id>]. Hidden cards are excluded automatically."
+    ),
 }
 
 
@@ -127,4 +177,6 @@ __all__ = [
     "search_memory_cards",
     "create_draft_memory_card",
     "finalize_meeting_memory",
+    "search_workspace_transcripts",
+    "search_workspace_cards",
 ]

@@ -41,11 +41,27 @@ def _build_tools_param() -> list[dict]:
     ]
 
 
-def _bootstrap_message(skill_name: str, meeting_id: str, user_question: Optional[str]) -> str:
+def _bootstrap_message(
+    skill_name: str,
+    meeting_id: Optional[str],
+    user_question: Optional[str],
+    workspace_id: Optional[str] = None,
+) -> str:
     if skill_name == "meeting-qa":
         if not user_question:
             raise ValueError("user_question is required for meeting-qa skill")
         return f"Meeting: {meeting_id}\nQuestion: {user_question}"
+    if skill_name == "workspace-qa":
+        if not user_question:
+            raise ValueError("user_question is required for workspace-qa skill")
+        if not workspace_id:
+            raise ValueError("workspace_id is required for workspace-qa skill")
+        return (
+            f"Workspace: {workspace_id}\n"
+            f"Question: {user_question}\n\n"
+            "Use the cross-meeting search tools to find evidence. Cite every "
+            "claim with [meeting:<id>:card:<id>] or [meeting:<id>:seg:<id>]."
+        )
     return f"Process meeting {meeting_id}."
 
 
@@ -88,15 +104,20 @@ def _serialize_tool_input(value: Any) -> Any:
 
 def run_skill(
     skill_name: str,
-    meeting_id: str,
+    meeting_id: Optional[str] = None,
     *,
     user_question: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     client: Optional[StorageRouterClient] = None,
     anthropic_client: Optional["anthropic.Anthropic"] = None,
     model: str = "claude-sonnet-4-5",
     max_iterations: int = 16,
 ) -> dict:
-    """Run a skill against Claude with the four hermes-plugin tools bound.
+    """Run a skill against Claude with all hermes-plugin tools bound.
+
+    For meeting-scoped skills pass ``meeting_id``; for workspace-scoped
+    skills (Wave 4.3 ``workspace-qa``) pass ``workspace_id`` and leave
+    ``meeting_id`` as ``None``.
 
     Returns {"final_text": str, "tool_calls": list, "iterations": int}.
     Hitting ``max_iterations`` returns the partial result with
@@ -104,7 +125,9 @@ def run_skill(
     """
     system = _load_skill(skill_name)
     tools_param = _build_tools_param()
-    bootstrap = _bootstrap_message(skill_name, meeting_id, user_question)
+    bootstrap = _bootstrap_message(
+        skill_name, meeting_id, user_question, workspace_id=workspace_id
+    )
 
     storage_client = client if client is not None else StorageRouterClient()
     llm = anthropic_client if anthropic_client is not None else _default_anthropic_client()

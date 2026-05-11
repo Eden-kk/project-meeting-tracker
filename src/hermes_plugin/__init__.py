@@ -14,7 +14,14 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-__all__ = ["__version__", "run_skill", "TOOL_REGISTRY", "meeting_finalization", "meeting_qa"]
+__all__ = [
+    "__version__",
+    "run_skill",
+    "TOOL_REGISTRY",
+    "meeting_finalization",
+    "meeting_qa",
+    "workspace_qa",
+]
 
 
 def meeting_finalization(
@@ -81,6 +88,22 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
     return _run_skill(
         skill_name="meeting-qa",
         meeting_id=meeting_id,
+        user_question=question,
+    )
+
+
+def workspace_qa(workspace_id: str, question: str) -> dict:
+    """Storage-router-facing entrypoint for /api/qa/workspace (Wave 4.3).
+
+    Drives the `workspace-qa` skill which is bound to the two
+    cross-meeting search tools. Citations come back as
+    ``[meeting:<id>:card:<id>]`` or ``[meeting:<id>:seg:<id>]``.
+    """
+    from .llm import run_skill as _run_skill
+
+    return _run_skill(
+        skill_name="workspace-qa",
+        workspace_id=workspace_id,
         user_question=question,
     )
 

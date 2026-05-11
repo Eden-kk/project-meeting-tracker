@@ -75,6 +75,38 @@ class StorageRouterClient:
     def create_memory_card(self, payload: dict) -> dict:
         return self._request("POST", "/api/memory-cards", json=payload)
 
+    def search_workspace_transcripts(
+        self,
+        workspace_id: str,
+        q: str,
+        *,
+        limit: int = 10,
+    ) -> dict:
+        """Wave 4.3: cross-meeting transcript FTS, scoped to a workspace."""
+        return self._request(
+            "GET",
+            "/api/search/transcripts",
+            params={"q": q, "workspace_id": workspace_id, "limit": limit},
+        )
+
+    def search_workspace_cards(
+        self,
+        workspace_id: str,
+        q: str,
+        *,
+        type: Optional[str] = None,
+        limit: int = 10,
+    ) -> dict:
+        """Wave 4.3: cross-meeting card FTS, scoped to a workspace."""
+        params: dict[str, str | int] = {
+            "q": q,
+            "workspace_id": workspace_id,
+            "limit": limit,
+        }
+        if type is not None:
+            params["type"] = type
+        return self._request("GET", "/api/search/cards", params=params)
+
     def finalize_meeting(self, meeting_id: str) -> dict:
         return self._request("POST", f"/api/meetings/{meeting_id}/finalize")
 

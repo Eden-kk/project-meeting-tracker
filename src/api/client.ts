@@ -173,6 +173,36 @@ export type SearchCardsParams = {
   offset?: number;
 };
 
+export type WorkspaceQACitation = {
+  meeting_id: string;
+  meeting_title: string;
+  memory_card_id: string | null;
+  segment_id: string | null;
+  snippet: string;
+};
+
+export type WorkspaceQAResponse = {
+  answer: string;
+  confidence: number;
+  citations: WorkspaceQACitation[];
+  weak_evidence: boolean;
+};
+
+export type AskWorkspaceInput = {
+  question: string;
+  workspace_id?: string;
+};
+
+export async function askWorkspace(
+  input: AskWorkspaceInput,
+): Promise<WorkspaceQAResponse> {
+  const res = await api.post<WorkspaceQAResponse>('/api/qa/workspace', {
+    workspace_id: input.workspace_id ?? DEV_WORKSPACE_ID,
+    question: input.question,
+  });
+  return res.data;
+}
+
 export async function searchCards(
   params: SearchCardsParams,
 ): Promise<CardSearchResponse> {

@@ -151,11 +151,71 @@ class FinalizeMeetingMemoryOutput(BaseModel):
     committed_card_ids: list[str]
 
 
+# Wave 4.3 — cross-meeting search tools for the `workspace-qa` skill.
+
+
+class SearchWorkspaceTranscriptsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1)
+    q: str = Field(min_length=1, max_length=500)
+    limit: Optional[int] = Field(default=10, ge=1, le=50)
+
+
+class SearchWorkspaceTranscriptsHit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    segment_id: str
+    meeting_id: str
+    meeting_title: str = ""
+    speaker: str = ""
+    start_ms: int = 0
+    end_ms: int = 0
+    text: str
+    snippet: str = ""
+    rank: float = 0.0
+
+
+class SearchWorkspaceTranscriptsOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[SearchWorkspaceTranscriptsHit]
+    total: int = 0
+
+
+class SearchWorkspaceCardsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1)
+    q: str = Field(min_length=1, max_length=500)
+    type: Optional[CardType] = None
+    limit: Optional[int] = Field(default=10, ge=1, le=50)
+
+
+class SearchWorkspaceCardsHit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    memory_card_id: str
+    meeting_id: str
+    meeting_title: str = ""
+    type: CardType
+    title: str
+    content: str
+    confidence: float = 0.0
+    source_start_ms: Optional[int] = None
+    source_end_ms: Optional[int] = None
+    snippet: str = ""
+    rank: float = 0.0
+
+
+class SearchWorkspaceCardsOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[SearchWorkspaceCardsHit]
+    total: int = 0
+
+
 TOOL_JSON_SCHEMAS: dict[str, dict] = {
     "get_meeting_transcript": GetMeetingTranscriptInput.model_json_schema(),
     "search_memory_cards": SearchMemoryCardsInput.model_json_schema(),
     "create_draft_memory_card": CreateDraftMemoryCardInput.model_json_schema(),
     "finalize_meeting_memory": FinalizeMeetingMemoryInput.model_json_schema(),
+    "search_workspace_transcripts": SearchWorkspaceTranscriptsInput.model_json_schema(),
+    "search_workspace_cards": SearchWorkspaceCardsInput.model_json_schema(),
 }
 
 
@@ -173,5 +233,9 @@ __all__ = [
     "CreateDraftMemoryCardOutput",
     "FinalizeMeetingMemoryInput",
     "FinalizeMeetingMemoryOutput",
+    "SearchWorkspaceTranscriptsInput",
+    "SearchWorkspaceTranscriptsOutput",
+    "SearchWorkspaceCardsInput",
+    "SearchWorkspaceCardsOutput",
     "TOOL_JSON_SCHEMAS",
 ]

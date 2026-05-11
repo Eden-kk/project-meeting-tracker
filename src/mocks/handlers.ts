@@ -257,6 +257,50 @@ export const handlers = [
     });
   }),
 
+  // Wave 4.3 — workspace-wide Ask Hermes.
+  http.post('*/api/qa/workspace', async ({ request }) => {
+    const input = (await request.json()) as {
+      workspace_id: string;
+      question: string;
+    };
+    if (!input.question || input.question.length === 0) {
+      return new HttpResponse(null, { status: 422 });
+    }
+    // Build a canned answer that references the first card of the
+    // first known meeting so the SPA's deep-link UX is exercisable in
+    // dev mode without a backend.
+    type Cit = {
+      meeting_id: string;
+      meeting_title: string;
+      memory_card_id: string | null;
+      segment_id: string | null;
+      snippet: string;
+    };
+    const citations: Cit[] = [];
+    let answerCore = `In response to "${input.question}", here is what I found across the workspace.`;
+    for (const [mid, entry] of meetings.entries()) {
+      const card = entry.cards.find((c) => !c.hidden_at);
+      if (card) {
+        citations.push({
+          meeting_id: mid,
+          meeting_title: entry.meeting.title ?? '',
+          memory_card_id: card.memory_card_id,
+          segment_id: null,
+          snippet: card.title,
+        });
+        answerCore += ` See [meeting:${mid}:card:${card.memory_card_id}].`;
+      }
+      if (citations.length >= 3) break;
+    }
+    const weak = citations.length === 0;
+    return HttpResponse.json({
+      answer: weak ? 'I could not find anything relevant.' : answerCore,
+      confidence: weak ? 0.3 : 0.75,
+      citations,
+      weak_evidence: weak,
+    });
+  }),
+
   http.post('*/api/qa/meeting', async ({ request }) => {
     const input = (await request.json()) as { meeting_id: string; question: string };
     const isWeak = /\bweak\b/i.test(input.question);
