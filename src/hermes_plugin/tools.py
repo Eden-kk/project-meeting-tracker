@@ -61,6 +61,11 @@ def search_memory_cards(args: dict, client: StorageRouterClient) -> dict:
         )
     except StorageUnavailable as exc:
         raise _wrap_storage(exc) from exc
+    # storage-router's list endpoint returns the pagination shape
+    # {items, total}; the plugin's SearchMemoryCardsOutput expects {cards}.
+    # Translate transparently so the tool stays usable.
+    if isinstance(raw, dict) and "items" in raw and "cards" not in raw:
+        raw = {"cards": raw.get("items", [])}
     return SearchMemoryCardsOutput.model_validate(raw).model_dump(mode="json")
 
 
