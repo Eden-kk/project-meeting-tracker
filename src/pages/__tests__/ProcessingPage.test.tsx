@@ -16,6 +16,7 @@ function meetingFixture(overrides: Partial<Meeting>): Meeting {
   return {
     meeting_id: 'm_1',
     artifact_id: 'a_1',
+    title: '',
     status: 'processing',
     started_at: null,
     ended_at: null,

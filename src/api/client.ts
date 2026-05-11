@@ -7,6 +7,9 @@ export type Meeting = components['schemas']['Meeting'];
 export type NormalizedTranscript = components['schemas']['NormalizedTranscript'];
 export type SpeakerSegment = components['schemas']['SpeakerSegment'];
 
+export type MeetingsList = { items: Meeting[]; total: number };
+export type ListMeetingsParams = { workspace_id: string; limit?: number; offset?: number };
+
 export type Visibility = 'private' | 'workspace' | 'shared';
 
 export type ImportInput = {
@@ -43,5 +46,10 @@ export async function getMeeting(id: string): Promise<Meeting> {
 
 export async function getMeetingTranscript(id: string): Promise<NormalizedTranscript> {
   const res = await api.get<NormalizedTranscript>(`/api/meetings/${id}/transcript`);
+  return res.data;
+}
+
+export async function listMeetings(params: ListMeetingsParams): Promise<MeetingsList> {
+  const res = await api.get<MeetingsList>('/api/meetings', { params });
   return res.data;
 }

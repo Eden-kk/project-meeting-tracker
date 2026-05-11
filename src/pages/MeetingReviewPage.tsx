@@ -5,7 +5,7 @@ import { getMeeting, getMeetingTranscript } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
-import { get as getRegistryEntry, patch as patchMeeting } from '../lib/meetingsRegistry';
+import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 const TABS: TabDef[] = [
   { id: 'summary', label: 'Summary' },
@@ -56,7 +56,7 @@ export default function MeetingReviewPage() {
 
   const meeting = meetingQuery.data;
   const segments = transcriptQuery.data?.segments ?? [];
-  const title = getRegistryEntry(meeting.meeting_id)?.title ?? 'Untitled meeting';
+  const title = meeting.title || 'Untitled meeting';
   const sourceType = segments[0]?.source_type ?? null;
   const detectedPattern = meeting.detected_pattern?.primary_pattern ?? 'Pending — Phase 2';
 

@@ -4,7 +4,7 @@
   "title": "Meeting",
   "description": "Processing/finalization record built on top of a ConversationArtifact. Source of truth: design-doc §8.",
   "type": "object",
-  "required": ["meeting_id", "artifact_id", "status", "evidence_quality"],
+  "required": ["meeting_id", "artifact_id", "title", "status", "evidence_quality"],
   "additionalProperties": false,
   "properties": {
     "meeting_id": {
@@ -14,6 +14,10 @@
     "artifact_id": {
       "type": "string",
       "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "default": ""
     },
     "status": {
       "type": "string",
