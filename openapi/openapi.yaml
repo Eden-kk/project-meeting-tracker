@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 1 surface
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Phase-1 endpoints for the Hermes-powered meeting memory tracker.
     Only the routes needed by Phase 1 (shared import + basic review) are
@@ -127,20 +127,219 @@ paths:
         '409':
           description: Meeting exists but transcript not yet ready.
 
-  # --- Phase 2+ endpoints (NOT defined in this spec) ----------------------
+  /api/memory-cards:
+    post:
+      summary: Create a memory card (draft)
+      description: |
+        Inserts a new MemoryCard in state `draft`. The server assigns
+        `memory_card_id` and timestamps. Returns 404 if `meeting_id` is unknown.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Meeting not found
+        '422':
+          description: Validation error
+
+  /api/meetings/{id}/memory-cards:
+    get:
+      summary: List memory cards for a meeting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        - in: query
+          name: state
+          required: false
+          schema:
+            type: string
+            enum: [candidate, draft, committed, rejected]
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCardListResponse'
+        '404':
+          description: Meeting not found
+
+  /api/memory-cards/{id}:
+    patch:
+      summary: Patch a draft memory card
+      description: Only allowed when state is `draft`. Whitelist of editable fields.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardPatch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+        '409':
+          description: Illegal transition (card not in draft)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IllegalTransition'
+        '422':
+          description: Validation error
+
+  /api/memory-cards/{id}/commit:
+    post:
+      summary: Commit a draft memory card
+      description: Transitions `draft` → `committed`; clears `needs_review`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+        '409':
+          description: Illegal transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IllegalTransition'
+
+  /api/memory-cards/{id}/reject:
+    post:
+      summary: Reject a draft memory card
+      description: Transitions `draft` → `rejected`; clears `needs_review`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+        '409':
+          description: Illegal transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IllegalTransition'
+
+  /api/meetings/{id}/finalize:
+    post:
+      summary: Finalize a meeting via Hermes
+      description: |
+        Runs `hermes_plugin.meeting_finalization`, persists returned cards as
+        `draft` MemoryCards, marks the meeting `finalized`, and returns a summary.
+        Synchronous in Phase 2; long-running calls block.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalizeResponse'
+        '404':
+          description: Meeting not found
+        '409':
+          description: Meeting already finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlreadyFinalized'
+        '503':
+          description: Hermes plugin unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HermesUnavailable'
+
+  /api/qa/meeting:
+    post:
+      summary: Ask a question about a single meeting (Hermes-backed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QARequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QAResponse'
+        '404':
+          description: Meeting not found
+        '422':
+          description: Validation error
+        '503':
+          description: Hermes plugin unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HermesUnavailable'
+
+  # --- Phase 2+ endpoints not yet defined in this spec --------------------
   # POST /api/live-meetings/start
   # POST /api/live-meetings/{id}/audio-frame
   # POST /api/live-meetings/{id}/stop
   # POST /api/zoom/rtms/webhook
   # GET  /api/meetings/{id}/chunks
-  # GET  /api/meetings/{id}/memory-cards
-  # POST /api/meetings/{id}/finalize
-  # POST /api/memory-cards
-  # PATCH /api/memory-cards/{id}
-  # POST /api/memory-cards/{id}/commit
-  # POST /api/memory-cards/{id}/reject
   # POST /api/search/meetings
-  # POST /api/qa/meeting
   # POST /api/qa/global
   # GET  /api/hermes/live-meetings/{id}/state
   # GET  /api/hermes/meetings/{id}/recent-chunks
@@ -222,3 +421,161 @@ components:
           type: string
           enum: [live_voice, zoom_rtms, voice_file, transcript_file, pasted_transcript]
         is_final:     { type: boolean }
+
+    MemoryCard:
+      description: Mirrors schemas/memory_card.schema.json
+      type: object
+      required: [memory_card_id, meeting_id, state, type, title, content, source_chunk_ids, confidence]
+      properties:
+        memory_card_id:   { type: string, minLength: 1 }
+        meeting_id:       { type: string, minLength: 1 }
+        state:
+          type: string
+          enum: [candidate, draft, committed, rejected]
+        type:
+          type: string
+          enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        title:            { type: string, minLength: 1, maxLength: 500 }
+        content:          { type: string }
+        source_chunk_ids:
+          type: array
+          items: { type: string }
+          minItems: 1
+        source_start_ms:  { type: integer, minimum: 0, nullable: true }
+        source_end_ms:    { type: integer, minimum: 0, nullable: true }
+        speakers_json:
+          type: array
+          items: { type: string }
+          nullable: true
+        confidence:       { type: number, minimum: 0, maximum: 1 }
+        needs_review:     { type: boolean, default: true, nullable: true }
+        created_by_agent: { type: string, nullable: true }
+        created_at:       { type: string, format: date-time, nullable: true }
+        updated_at:       { type: string, format: date-time, nullable: true }
+
+    MemoryCardCreate:
+      description: Request body for POST /api/memory-cards (also the per-card shape Hermes returns from meeting_finalization).
+      type: object
+      additionalProperties: false
+      required: [meeting_id, type, title, content, source_chunk_ids, confidence]
+      properties:
+        meeting_id:       { type: string, minLength: 1 }
+        type:
+          type: string
+          enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        title:            { type: string, minLength: 1, maxLength: 500 }
+        content:          { type: string }
+        source_chunk_ids:
+          type: array
+          items: { type: string }
+          minItems: 1
+        source_start_ms:  { type: integer, minimum: 0, nullable: true }
+        source_end_ms:    { type: integer, minimum: 0, nullable: true }
+        speakers_json:
+          type: array
+          items: { type: string }
+          nullable: true
+        confidence:       { type: number, minimum: 0, maximum: 1 }
+        needs_review:     { type: boolean, default: true }
+        created_by_agent: { type: string, nullable: true }
+
+    MemoryCardPatch:
+      description: Partial update for a draft MemoryCard. Whitelist; state transitions go through commit/reject.
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        title:            { type: string, minLength: 1, maxLength: 500 }
+        content:          { type: string }
+        source_chunk_ids:
+          type: array
+          items: { type: string }
+          minItems: 1
+        source_start_ms:  { type: integer, minimum: 0, nullable: true }
+        source_end_ms:    { type: integer, minimum: 0, nullable: true }
+        speakers_json:
+          type: array
+          items: { type: string }
+          nullable: true
+        confidence:       { type: number, minimum: 0, maximum: 1 }
+        needs_review:     { type: boolean }
+
+    MemoryCardListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MemoryCard' }
+        total: { type: integer, minimum: 0 }
+
+    IllegalTransition:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, from, to]
+          properties:
+            code: { type: string, enum: [illegal_transition] }
+            from: { type: string }
+            to:   { type: string }
+
+    AlreadyFinalized:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties:
+            code: { type: string, enum: [already_finalized] }
+
+    HermesUnavailable:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:    { type: string, enum: [hermes_unavailable] }
+            message: { type: string }
+
+    FinalizeResponse:
+      type: object
+      required: [meeting_id, finalized_at, cards_created, summary]
+      properties:
+        meeting_id:    { type: string }
+        finalized_at:  { type: string, format: date-time }
+        cards_created: { type: integer, minimum: 0 }
+        summary:       { type: string }
+
+    QARequest:
+      type: object
+      additionalProperties: false
+      required: [meeting_id, question]
+      properties:
+        meeting_id: { type: string, minLength: 1 }
+        question:   { type: string, minLength: 1, maxLength: 4000 }
+
+    QAEvidenceItem:
+      type: object
+      required: [chunk_id, text]
+      properties:
+        chunk_id:      { type: string }
+        text:          { type: string }
+        speaker:       { type: string, nullable: true }
+        start_ms:      { type: integer, minimum: 0, nullable: true }
+        end_ms:        { type: integer, minimum: 0, nullable: true }
+
+    QAResponse:
+      type: object
+      required: [answer, evidence]
+      properties:
+        answer:   { type: string }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/QAEvidenceItem' }
