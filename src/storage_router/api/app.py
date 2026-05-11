@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from storage_router.api import (
     action_items_route,
+    followup_route,
     import_route,
     live_route,
     meetings_route,
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(memory_cards_route.router)
     app.include_router(qa_route.router)
     app.include_router(action_items_route.router)
+    app.include_router(followup_route.router)
 
     # Optional: serve a built frontend SPA out of the same origin.
     # Set FRONTEND_DIST=/path/to/frontend/dist when launching to enable.
