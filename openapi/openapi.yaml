@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 1 surface
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Phase-1 endpoints for the Hermes-powered meeting memory tracker.
     Only the routes needed by Phase 1 (shared import + basic review) are
@@ -585,19 +585,21 @@ components:
 
     QAEvidenceItem:
       type: object
-      required: [chunk_id, text]
+      required: [segment_id, speaker, text]
       properties:
-        chunk_id:      { type: string }
+        segment_id:    { type: string }
+        speaker:       { type: string }
         text:          { type: string }
-        speaker:       { type: string, nullable: true }
-        start_ms:      { type: integer, minimum: 0, nullable: true }
-        end_ms:        { type: integer, minimum: 0, nullable: true }
+        start_ms:      { type: integer, default: 0, minimum: 0 }
+        end_ms:        { type: integer, default: 0, minimum: 0 }
 
     QAResponse:
       type: object
-      required: [answer, evidence]
+      required: [answer, citations, weak_evidence]
       properties:
-        answer:   { type: string }
-        evidence:
+        answer:        { type: string }
+        confidence:    { type: number, default: 0.85, minimum: 0.0, maximum: 1.0 }
+        citations:
           type: array
           items: { $ref: '#/components/schemas/QAEvidenceItem' }
+        weak_evidence: { type: boolean, default: false }

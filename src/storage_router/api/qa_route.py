@@ -20,6 +20,7 @@ from storage_router.models.db import MeetingRow
 from storage_router.models.memory_cards import (
     FinalizeResponse,
     MemoryCardCreate,
+    QAEvidenceItem,
     QARequest,
     QAResponse,
 )
@@ -108,7 +109,55 @@ def qa_meeting(body: QARequest, session: Session = Depends(get_session)):
         result = hermes_runtime.run_meeting_qa(body.meeting_id, body.question)
     except hermes_runtime.HermesUnavailable as e:
         return _hermes_unavailable(e)
-    return QAResponse(**result).model_dump(mode="json")
+    # The plugin's `run_skill` returns {final_text, tool_calls, iterations}.
+    # Translate to the frontend's AskHermesResponse contract:
+    # {answer, confidence, citations: [{segment_id, speaker, start_ms, end_ms, text}], weak_evidence}.
+    import json as _json
+    import re
+    from storage_router.models.db import SpeakerSegmentRow
+
+    answer_text = result.get("final_text") or result.get("answer", "")
+    weak_evidence = False
+    try:
+        parsed_refusal = _json.loads(answer_text)
+        if isinstance(parsed_refusal, dict) and parsed_refusal.get("refused"):
+            weak_evidence = True
+    except Exception:
+        pass
+
+    seg_ids: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"\[seg:([^\]]+)\]", answer_text or ""):
+        sid = m.group(1)
+        if sid not in seen:
+            seen.add(sid)
+            seg_ids.append(sid)
+
+    citations: list[dict] = []
+    if seg_ids:
+        rows = session.query(SpeakerSegmentRow).filter(SpeakerSegmentRow.id.in_(seg_ids)).all()
+        by_id = {r.id: r for r in rows}
+        for sid in seg_ids:
+            row = by_id.get(sid)
+            if row is None:
+                continue
+            citations.append({
+                "segment_id": row.id,
+                "speaker": row.speaker_name or row.speaker_id or "Unknown",
+                "start_ms": int(row.start_ms or 0),
+                "end_ms": int(row.end_ms or 0),
+                "text": row.text or "",
+            })
+
+    if not citations and not weak_evidence:
+        weak_evidence = True
+
+    return QAResponse(
+        answer=answer_text,
+        confidence=0.4 if weak_evidence else 0.85,
+        citations=[QAEvidenceItem(**c) for c in citations],
+        weak_evidence=weak_evidence,
+    ).model_dump(mode="json")
 
 
 # Re-export for parity with cards_route's _row_to_card (kept reachable for tests).
