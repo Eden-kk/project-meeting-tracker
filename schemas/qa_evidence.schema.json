@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tracker.local/schemas/qa_evidence.schema.json",
+  "title": "QAEvidenceItem",
+  "description": "One evidence item supporting a Hermes-generated answer to a per-meeting QA question. Source of truth: design-doc §15.",
+  "type": "object",
+  "required": ["chunk_id", "text"],
+  "additionalProperties": false,
+  "properties": {
+    "chunk_id": { "type": "string", "minLength": 1 },
+    "text": { "type": "string" },
+    "speaker": { "type": ["string", "null"] },
+    "start_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "end_ms": { "type": ["integer", "null"], "minimum": 0 }
+  }
+}
