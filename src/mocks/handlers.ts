@@ -210,6 +210,56 @@ export const handlers = [
     return dashboardResponse(request, 'open_question');
   }),
 
+  // Wave 4.2 — cross-meeting card search.
+  http.get('*/api/search/cards', ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('q') ?? '').toLowerCase();
+    const typeFilter = url.searchParams.get('type') as MemoryCardType | null;
+    const limit = Number(url.searchParams.get('limit') ?? 20);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    if (!q) return new HttpResponse(null, { status: 422 });
+    type Hit = {
+      memory_card_id: string;
+      meeting_id: string;
+      meeting_title: string;
+      type: MemoryCardType;
+      title: string;
+      content: string;
+      confidence: number;
+      source_start_ms: number | null;
+      source_end_ms: number | null;
+      snippet: string;
+      rank: number;
+    };
+    const all: Hit[] = [];
+    for (const [mid, entry] of meetings.entries()) {
+      for (const card of entry.cards) {
+        if (card.hidden_at) continue;
+        if (typeFilter && card.type !== typeFilter) continue;
+        const haystack = `${card.title} ${card.content}`.toLowerCase();
+        if (haystack.includes(q)) {
+          all.push({
+            memory_card_id: card.memory_card_id,
+            meeting_id: mid,
+            meeting_title: entry.meeting.title ?? '',
+            type: card.type,
+            title: card.title,
+            content: card.content,
+            confidence: 0.8,
+            source_start_ms: null,
+            source_end_ms: null,
+            snippet: card.content,
+            rank: 1.0,
+          });
+        }
+      }
+    }
+    return HttpResponse.json({
+      items: all.slice(offset, offset + limit),
+      total: all.length,
+    });
+  }),
+
   http.post('*/api/qa/meeting', async ({ request }) => {
     const input = (await request.json()) as { meeting_id: string; question: string };
     const isWeak = /\bweak\b/i.test(input.question);
