@@ -52,8 +52,10 @@ export function MemoryCardItem({ card, onEvidenceClick }: Props) {
       {firstSegmentId && (
         <button
           type="button"
+          data-testid="memory-card-source-pill"
           onClick={() => onEvidenceClick(firstSegmentId)}
-          className="self-start text-xs text-blue-600 underline"
+          title="Jump to the cited transcript segment"
+          className="self-start rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs text-blue-700 hover:bg-blue-100"
         >
           View evidence
         </button>
