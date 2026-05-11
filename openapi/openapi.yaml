@@ -308,7 +308,7 @@ components:
         title:             { type: string, default: '' }
         status:
           type: string
-          enum: [live, processing, ready, finalized, failed]
+          enum: [live, processing, ready, finalizing, finalized, failed]
         started_at:        { type: string, format: date-time, nullable: true }
         ended_at:          { type: string, format: date-time, nullable: true }
         finalized_at:      { type: string, format: date-time, nullable: true }
@@ -317,6 +317,12 @@ components:
         evidence_quality:
           type: string
           enum: [unknown, high, medium, low, lowest]
+        last_finalize_error:
+          type: string
+          nullable: true
+          description: |
+            Set by the auto-finalize background task when the Hermes call
+            fails; status reverts to `ready` so the user can re-trigger.
 
     MeetingPattern:
       description: Mirrors schemas/meeting_pattern.schema.json

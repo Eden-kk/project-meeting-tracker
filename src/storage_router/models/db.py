@@ -88,6 +88,9 @@ class MeetingRow(Base):
         Text, nullable=False, server_default="unknown"
     )
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Phase-3 auto-finalize: populated when a background finalize task
+    # fails so the UI can show the cause without spelunking the logs.
+    last_finalize_error: Mapped[str | None] = mapped_column(Text)
 
 
 class MeetingSourceRow(Base):

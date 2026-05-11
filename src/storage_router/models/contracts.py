@@ -49,6 +49,7 @@ class MeetingStatus(Enum):
     live = "live"
     processing = "processing"
     ready = "ready"
+    finalizing = "finalizing"
     finalized = "finalized"
     failed = "failed"
 
@@ -125,7 +126,13 @@ class MeetingPattern(BaseModel):
 
 
 class Meeting(BaseModel):
-    """Processing/finalization record built on a ConversationArtifact. Source of truth: design-doc §8."""
+    """Processing/finalization record built on a ConversationArtifact. Source of truth: design-doc §8.
+
+    Phase-3 auto-finalize adds the `finalizing` status (between `ready`
+    and `finalized`) and the `last_finalize_error` field — populated when
+    the background finalize task fails so the status reverts to `ready`
+    and the cause is visible without log-diving.
+    """
 
     model_config = ConfigDict(extra="forbid")
     meeting_id: str = Field(..., min_length=1)
@@ -142,6 +149,13 @@ class Meeting(BaseModel):
     )
     evidence_quality: EvidenceQuality = Field(
         ..., description="Per design-doc §9 evidence-quality table."
+    )
+    last_finalize_error: str | None = Field(
+        None,
+        description=(
+            "Set by the auto-finalize background task when finalize fails; "
+            "status reverts to `ready` so the user can re-trigger."
+        ),
     )
 
 

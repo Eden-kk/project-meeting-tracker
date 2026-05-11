@@ -478,7 +478,7 @@ export interface components {
             /** @default  */
             title: string;
             /** @enum {string} */
-            status: "live" | "processing" | "ready" | "finalized" | "failed";
+            status: "live" | "processing" | "ready" | "finalizing" | "finalized" | "failed";
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */
@@ -489,6 +489,11 @@ export interface components {
             current_schema?: Record<string, never> | null;
             /** @enum {string} */
             evidence_quality: "unknown" | "high" | "medium" | "low" | "lowest";
+            /**
+             * @description Set by the auto-finalize background task when the Hermes call
+             *     fails; status reverts to `ready` so the user can re-trigger.
+             */
+            last_finalize_error?: string | null;
         };
         /** @description Mirrors schemas/meeting_pattern.schema.json */
         MeetingPattern: {
