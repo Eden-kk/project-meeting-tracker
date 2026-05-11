@@ -34,7 +34,7 @@ CREATE TABLE meetings (
     started_at        TIMESTAMPTZ,
     ended_at          TIMESTAMPTZ,
     detected_pattern  JSONB,
-    current_schema    JSONB,
+    "current_schema"  JSONB,
     evidence_quality  TEXT NOT NULL DEFAULT 'unknown' CHECK (evidence_quality IN (
                            'unknown', 'high', 'medium', 'low', 'lowest')),
     finalized_at      TIMESTAMPTZ
