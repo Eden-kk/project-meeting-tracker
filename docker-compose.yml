@@ -1,0 +1,18 @@
+# Local Postgres for storage-router development.
+#
+# NOTE: In the current environment a managed Postgres is already provisioned
+# (RunPod) and its DSN lives in .env.local (gitignored). When that DSN is
+# present the project uses it directly and this compose file is NOT started.
+# The file is kept for documentation and for fresh checkouts that need a
+# self-hosted dev DB.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker
+      POSTGRES_DB: tracker
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+volumes:
+  pgdata:
