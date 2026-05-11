@@ -15,7 +15,12 @@ export function TranscriptView({ segments }: { segments: SpeakerSegment[] }) {
         prevSpeaker = label;
         const showTimestamp = seg.start_ms != null;
         return (
-          <div key={seg.segment_id} className="flex gap-3" data-testid="transcript-row">
+          <div
+            key={seg.segment_id}
+            id={'segment-' + seg.segment_id}
+            className="flex gap-3"
+            data-testid="transcript-row"
+          >
             {showTimestamp && (
               <span className="w-16 shrink-0 font-mono text-xs text-gray-500">
                 {msToClock(seg.start_ms!)}

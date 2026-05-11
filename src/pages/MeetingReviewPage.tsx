@@ -5,13 +5,15 @@ import { getMeeting, getMeetingTranscript } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
+import { MemoryCardsTab } from '../components/MemoryCardsTab';
+import { AskHermesTab } from '../components/AskHermesTab';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 const TABS: TabDef[] = [
   { id: 'summary', label: 'Summary' },
   { id: 'transcript', label: 'Transcript' },
-  { id: 'memory', label: 'Memory Cards', disabled: true, tooltip: 'Arrives in Phase 2' },
-  { id: 'ask', label: 'Ask Hermes', disabled: true, tooltip: 'Arrives in Phase 7' },
+  { id: 'memory', label: 'Memory Cards' },
+  { id: 'ask', label: 'Ask Hermes' },
   { id: 'share', label: 'Share / Export', disabled: true, tooltip: 'Arrives in Phase 8' },
 ];
 
@@ -40,6 +42,13 @@ export default function MeetingReviewPage() {
       last_seen_at: new Date().toISOString(),
     });
   }, [meetingQuery.data, id]);
+
+  function handleEvidenceClick(segmentId: string) {
+    setTab('transcript');
+    requestAnimationFrame(() => {
+      document.getElementById('segment-' + segmentId)?.scrollIntoView({ block: 'center' });
+    });
+  }
 
   if (meetingQuery.isError) {
     return (
@@ -78,6 +87,14 @@ export default function MeetingReviewPage() {
           <p>Summary not yet available — extraction lands in Phase 2.</p>
         )}
         {tab === 'transcript' && <TranscriptView segments={segments} />}
+        {/* Memory + Ask tabs mounted persistently so chat session and filter
+            state survive tab toggles within the same meeting. */}
+        <div className={tab === 'memory' ? '' : 'hidden'}>
+          <MemoryCardsTab meetingId={id} onEvidenceClick={handleEvidenceClick} />
+        </div>
+        <div className={tab === 'ask' ? '' : 'hidden'}>
+          <AskHermesTab meetingId={id} onEvidenceClick={handleEvidenceClick} />
+        </div>
       </Tabs>
     </div>
   );
