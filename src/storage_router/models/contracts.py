@@ -63,13 +63,6 @@ class EvidenceQuality(Enum):
     lowest = "lowest"
 
 
-class MemoryCardState(Enum):
-    candidate = "candidate"
-    draft = "draft"
-    committed = "committed"
-    rejected = "rejected"
-
-
 class MemoryCardType(Enum):
     decision = "decision"
     action_item = "action_item"
@@ -177,12 +170,16 @@ class ConversationArtifact(BaseModel):
 
 
 class MemoryCard(BaseModel):
-    """Evidence-backed memory item Hermes extracts from a meeting. Source of truth: design-doc §13."""
+    """Evidence-backed memory item Hermes extracts from a meeting. Source of truth: design-doc §13.
+
+    Phase-3 redesign: dropped `state` enum and `needs_review`; added
+    `hidden_at` (agent soft-delete) and `superseded_by_id` (agent dedupe
+    pointer at the canonical winner card).
+    """
 
     model_config = ConfigDict(extra="forbid")
     memory_card_id: str = Field(..., min_length=1)
     meeting_id: str = Field(..., min_length=1)
-    state: MemoryCardState
     type: MemoryCardType
     title: str = Field(..., max_length=500, min_length=1)
     content: str
@@ -194,7 +191,18 @@ class MemoryCard(BaseModel):
         description="List of speaker names/ids implicated by this card; mirrors speaker_segments rows.",
     )
     confidence: float = Field(..., ge=0.0, le=1.0)
-    needs_review: bool | None = True
+    hidden_at: datetime | None = Field(
+        None,
+        description=(
+            "Agent-driven soft delete; list endpoints filter `hidden_at IS NULL` by default."
+        ),
+    )
+    superseded_by_id: str | None = Field(
+        None,
+        description=(
+            "If set, points at the canonical winner card from the agent consolidation pass."
+        ),
+    )
     created_by_agent: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -208,7 +216,6 @@ __all__ = [
     "MeetingPattern",
     "MeetingStatus",
     "MemoryCard",
-    "MemoryCardState",
     "MemoryCardType",
     "NormalizedTranscript",
     "ProcessingStatus",

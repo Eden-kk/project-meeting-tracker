@@ -13,7 +13,6 @@ from .conftest import make_message
 _VALID_CARD = {
     "memory_card_id": "mc_1",
     "meeting_id": "m_fixture001",
-    "state": "draft",
     "type": "decision",
     "title": "t",
     "content": "c",

@@ -54,13 +54,18 @@ class StorageRouterClient:
         meeting_id: str,
         *,
         type: Optional[str] = None,
-        state: Optional[str] = None,
+        include_hidden: bool = False,
     ) -> dict:
+        """List visible cards for a meeting (Phase-3: no `state` filter).
+
+        ``include_hidden`` is forwarded to the server which controls the
+        agent-driven `hidden_at IS NULL` filter.
+        """
         params: dict[str, str] = {}
         if type is not None:
             params["type"] = type
-        if state is not None:
-            params["state"] = state
+        if include_hidden:
+            params["include_hidden"] = "true"
         return self._request(
             "GET",
             f"/api/meetings/{meeting_id}/memory-cards",

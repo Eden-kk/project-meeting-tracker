@@ -34,10 +34,10 @@ def test_get_meeting_transcript_route(storage_client):
 def test_list_memory_cards_route_with_filters(storage_client):
     handler, seen = _capture(lambda req: httpx.Response(200, json={"cards": []}))
     client = storage_client(handler)
-    client.list_memory_cards("m_1", type="decision", state="draft")
+    client.list_memory_cards("m_1", type="decision", include_hidden=True)
     assert seen[0].method == "GET"
     assert seen[0].url.path == "/api/meetings/m_1/memory-cards"
-    assert dict(seen[0].url.params) == {"type": "decision", "state": "draft"}
+    assert dict(seen[0].url.params) == {"type": "decision", "include_hidden": "true"}
 
 
 def test_list_memory_cards_route_no_filters(storage_client):
@@ -54,7 +54,6 @@ def test_create_memory_card_route(storage_client):
             json={
                 "memory_card_id": "mc_1",
                 "meeting_id": "m_1",
-                "state": "draft",
                 "type": "decision",
                 "title": "t",
                 "content": "c",

@@ -137,8 +137,13 @@ class SpeakerSegmentRow(Base):
 
 
 class MemoryCardRow(Base):
-    """Mirror of migrations/0004_memory.sql `memory_cards`. State + type
-    enums are enforced by DB CHECK constraints, not by SQLAlchemy."""
+    """Mirror of migrations/0004_memory.sql + 0010_collapse_card_state.sql.
+
+    Phase-3 redesign collapsed the user-curation state machine: there is no
+    `state` enum and no `needs_review` flag. Quality is owned by the agent
+    audit + consolidation passes which write `confidence`, `hidden_at`,
+    and `superseded_by_id`.
+    """
 
     __tablename__ = "memory_cards"
 
@@ -146,7 +151,6 @@ class MemoryCardRow(Base):
     meeting_id: Mapped[str] = mapped_column(
         Text, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False
     )
-    state: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -155,8 +159,9 @@ class MemoryCardRow(Base):
     source_end_ms: Mapped[int | None] = mapped_column(BigInteger)
     speakers_json: Mapped[list | None] = mapped_column(JSONB)
     confidence: Mapped[float] = mapped_column(Double, nullable=False)
-    needs_review: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="true"
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_by_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("memory_cards.id", ondelete="SET NULL")
     )
     created_by_agent: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

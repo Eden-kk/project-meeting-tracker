@@ -18,7 +18,12 @@ MemoryCardOut = MemoryCard
 
 class MemoryCardCreate(BaseModel):
     """Request body for POST /api/memory-cards. Also the per-card payload Hermes
-    returns from `meeting_finalization`. Server assigns id/state/timestamps."""
+    returns from `meeting_finalization`. Server assigns id + timestamps.
+
+    Phase-3 redesign: no `state`, no `needs_review`. Cards are live as soon
+    as they are created; the audit + consolidation passes flag bad cards
+    via `hidden_at` / `superseded_by_id`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -31,25 +36,7 @@ class MemoryCardCreate(BaseModel):
     source_end_ms: int | None = Field(None, ge=0)
     speakers_json: list[str] | None = None
     confidence: float = Field(..., ge=0.0, le=1.0)
-    needs_review: bool = True
     created_by_agent: str | None = None
-
-
-class MemoryCardPatch(BaseModel):
-    """Partial update for a draft MemoryCard. State transitions go through
-    commit/reject — `state` is intentionally not in the whitelist."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    type: MemoryCardType | None = None
-    title: str | None = Field(None, min_length=1, max_length=500)
-    content: str | None = None
-    source_chunk_ids: list[str] | None = Field(None, min_length=1)
-    source_start_ms: int | None = Field(None, ge=0)
-    source_end_ms: int | None = Field(None, ge=0)
-    speakers_json: list[str] | None = None
-    confidence: float | None = Field(None, ge=0.0, le=1.0)
-    needs_review: bool | None = None
 
 
 class MemoryCardListResponse(BaseModel):
@@ -98,7 +85,6 @@ __all__ = [
     "MemoryCardCreate",
     "MemoryCardListResponse",
     "MemoryCardOut",
-    "MemoryCardPatch",
     "QAEvidenceItem",
     "QARequest",
     "QAResponse",

@@ -23,8 +23,6 @@ CardType = Literal[
     "technical_detail",
 ]
 
-CardState = Literal["candidate", "draft", "committed", "rejected"]
-
 SourceType = Literal[
     "live_voice",
     "zoom_rtms",
@@ -60,13 +58,17 @@ class NormalizedTranscript(BaseModel):
 
 
 class MemoryCard(BaseModel):
-    """Evidence-backed memory item; mirrors memory_card.schema.json."""
+    """Evidence-backed memory item; mirrors memory_card.schema.json.
+
+    Phase-3 redesign: dropped `state` enum and `needs_review`. Quality is
+    owned by the agent passes via `confidence`, `hidden_at`, and
+    `superseded_by_id`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     memory_card_id: str = Field(min_length=1)
     meeting_id: str = Field(min_length=1)
-    state: CardState
     type: CardType
     title: str = Field(min_length=1, max_length=500)
     content: str
@@ -75,7 +77,8 @@ class MemoryCard(BaseModel):
     source_end_ms: Optional[int] = Field(default=None, ge=0)
     speakers_json: Optional[list[str]] = None
     confidence: float = Field(ge=0, le=1)
-    needs_review: Optional[bool] = True
+    hidden_at: Optional[str] = None
+    superseded_by_id: Optional[str] = None
     created_by_agent: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -96,7 +99,7 @@ class SearchMemoryCardsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     meeting_id: str = Field(min_length=1)
     type: Optional[CardType] = None
-    state: Optional[CardState] = None
+    include_hidden: Optional[bool] = False
 
 
 class SearchMemoryCardsOutput(BaseModel):
@@ -123,7 +126,6 @@ class CreateDraftMemoryCardInput(BaseModel):
     source_start_ms: Optional[int] = Field(default=None, ge=0)
     source_end_ms: Optional[int] = Field(default=None, ge=0)
     speakers_json: Optional[list[str]] = None
-    needs_review: Optional[bool] = None
 
 
 CreateDraftMemoryCardOutput = MemoryCard
@@ -159,7 +161,6 @@ TOOL_JSON_SCHEMAS: dict[str, dict] = {
 
 __all__ = [
     "CardType",
-    "CardState",
     "SourceType",
     "SpeakerSegment",
     "NormalizedTranscript",

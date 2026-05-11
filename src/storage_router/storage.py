@@ -13,18 +13,6 @@ from storage_router.models.db import (
 )
 from storage_router.state_machine import next_status
 
-# Whitelist mirrors MemoryCardPatch — keep in sync.
-_PATCH_FIELDS = (
-    "type",
-    "title",
-    "content",
-    "source_chunk_ids",
-    "source_start_ms",
-    "source_end_ms",
-    "speakers_json",
-    "confidence",
-    "needs_review",
-)
 
 
 def create_artifact(
@@ -178,10 +166,11 @@ def create_memory_card(
     source_start_ms: int | None = None,
     source_end_ms: int | None = None,
     speakers_json: list[str] | None = None,
-    needs_review: bool = True,
     created_by_agent: str | None = None,
 ) -> MemoryCardRow:
-    """Insert a new MemoryCard in state `draft`. Caller commits.
+    """Insert a new MemoryCard. Phase-3 redesign: cards are live on insert;
+    there is no `state` column, no `draft → committed` transition. The
+    audit + consolidation passes flag bad cards via `hidden_at`.
 
     Raises LookupError if the meeting does not exist (route maps to 404).
     """
@@ -190,7 +179,6 @@ def create_memory_card(
     row = MemoryCardRow(
         id=new_id("mem"),
         meeting_id=meeting_id,
-        state="draft",
         type=type,
         title=title,
         content=content,
@@ -199,7 +187,6 @@ def create_memory_card(
         source_end_ms=source_end_ms,
         speakers_json=speakers_json,
         confidence=confidence,
-        needs_review=needs_review,
         created_by_agent=created_by_agent,
     )
     session.add(row)
@@ -212,11 +199,14 @@ def list_meeting_cards(
     *,
     meeting_id: str,
     type: str | None = None,
-    state: str | None = None,
+    include_hidden: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[MemoryCardRow], int]:
     """Return (rows, total) for a meeting's cards, newest first.
+
+    By default filters out agent-hidden rows (`hidden_at IS NULL`). Set
+    `include_hidden=True` for admin / audit views.
 
     Raises LookupError if the meeting does not exist.
     """
@@ -225,8 +215,8 @@ def list_meeting_cards(
     base = select(MemoryCardRow).where(MemoryCardRow.meeting_id == meeting_id)
     if type is not None:
         base = base.where(MemoryCardRow.type == type)
-    if state is not None:
-        base = base.where(MemoryCardRow.state == state)
+    if not include_hidden:
+        base = base.where(MemoryCardRow.hidden_at.is_(None))
     total = session.execute(
         select(func.count()).select_from(base.subquery())
     ).scalar_one()
@@ -244,48 +234,3 @@ def list_meeting_cards(
 
 def get_memory_card(session, card_id: str) -> MemoryCardRow | None:
     return session.get(MemoryCardRow, card_id)
-
-
-def patch_memory_card(session, card_id: str, patch: dict) -> MemoryCardRow:
-    """SELECT FOR UPDATE → whitelist apply → bump updated_at.
-
-    Raises LookupError if missing; ValueError("illegal_transition", "draft", state)
-    if the card is not in draft.
-    """
-    row = session.execute(
-        select(MemoryCardRow)
-        .where(MemoryCardRow.id == card_id)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if row is None:
-        raise LookupError(f"memory card {card_id} not found")
-    if row.state != "draft":
-        raise ValueError("illegal_transition", "draft", row.state)
-    for field in _PATCH_FIELDS:
-        if field in patch:
-            setattr(row, field, patch[field])
-    row.updated_at = func.now()
-    session.flush()
-    return row
-
-
-def transition_card_state(session, card_id: str, *, target: str) -> MemoryCardRow:
-    """Transition draft → committed | rejected. Always clears needs_review.
-
-    Raises LookupError if missing; ValueError("illegal_transition", from, to)
-    if the transition is not allowed.
-    """
-    row = session.execute(
-        select(MemoryCardRow)
-        .where(MemoryCardRow.id == card_id)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if row is None:
-        raise LookupError(f"memory card {card_id} not found")
-    if not (row.state == "draft" and target in ("committed", "rejected")):
-        raise ValueError("illegal_transition", row.state, target)
-    row.state = target
-    row.needs_review = False
-    row.updated_at = func.now()
-    session.flush()
-    return row

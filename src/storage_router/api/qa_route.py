@@ -65,6 +65,7 @@ def finalize_meeting(
     #   * Chunked path: {"cards_created": int, "summary": str,
     #     "chunks_processed": int} — cards were already persisted by the
     #     create_draft_memory_card tool inside the plugin.
+    # Phase-3: `needs_review` field is gone (PR #19 dropped it).
     cards_payload = result.get("cards")
     if cards_payload is not None:
         cards_in = [MemoryCardCreate(**c) for c in cards_payload]
@@ -80,7 +81,6 @@ def finalize_meeting(
                 source_start_ms=card.source_start_ms,
                 source_end_ms=card.source_end_ms,
                 speakers_json=card.speakers_json,
-                needs_review=card.needs_review,
                 created_by_agent=card.created_by_agent,
             )
         cards_created = len(cards_in)
