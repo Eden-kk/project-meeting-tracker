@@ -85,6 +85,21 @@ The hermes plugin runtime can drive skills against either Anthropic Claude (defa
 
 Both backends share the same `TOOL_REGISTRY`, the same SKILL.md prompts, and the same `{final_text, tool_calls, iterations}` return shape. The dispatcher lives in `hermes_plugin.llm.run_skill`; both `meeting_finalization()` and `meeting_qa()` shims route through it. Unknown values raise `ValueError`. The chunked-extraction runtime (`run_chunked_extraction`) remains Anthropic-only for now.
 
+### OpenAI-compatible providers (DeepInfra, Together, Groq, vLLM, Ollama)
+
+The same `LLM_PROVIDER=openai` selector works for any OpenAI-compatible
+endpoint. Set `OPENAI_BASE_URL` to the provider's URL and `OPENAI_API_KEY`
+to the provider's key.
+
+Example: DeepInfra with DeepSeek-V4-Flash:
+
+```
+LLM_PROVIDER=openai
+OPENAI_API_KEY=<your DeepInfra key>
+OPENAI_BASE_URL=https://api.deepinfra.com/v1/openai
+HERMES_MODEL=deepseek-ai/DeepSeek-V4-Flash
+```
+
 ## Status
 
 Phase 1 complete: design doc at `docs/design-doc.md`, roadmap at `docs/roadmap.md`. The five Phase-1 worktrees and the integration are all merged.

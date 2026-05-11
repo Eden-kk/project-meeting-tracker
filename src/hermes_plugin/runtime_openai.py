@@ -68,7 +68,9 @@ def _default_openai_client() -> "openai.OpenAI":
         raise RuntimeError("OPENAI_API_KEY not set")
     import openai
 
-    return openai.OpenAI()
+    base_url = os.environ.get("OPENAI_BASE_URL") or None
+    kwargs = {"base_url": base_url} if base_url else {}
+    return openai.OpenAI(**kwargs)
 
 
 def _attr(obj: Any, name: str, default: Any = None) -> Any:

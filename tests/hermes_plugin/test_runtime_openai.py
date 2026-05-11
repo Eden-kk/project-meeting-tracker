@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
 
-from hermes_plugin.runtime_openai import run_skill
+from hermes_plugin.runtime_openai import _default_openai_client, run_skill
 
 
 _VALID_CARD = {
@@ -276,6 +277,22 @@ def test_run_skill_qa_requires_user_question(storage_client):
     llm = FakeOpenAI([])
     with pytest.raises(ValueError):
         run_skill("meeting-qa", meeting_id="m_1", client=client, openai_client=llm)
+
+
+def test_default_client_passes_base_url_when_set(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepinfra.com/v1/openai")
+    with patch("openai.OpenAI") as mock_cls:
+        _default_openai_client()
+    mock_cls.assert_called_once_with(base_url="https://api.deepinfra.com/v1/openai")
+
+
+def test_default_client_omits_base_url_when_unset(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    with patch("openai.OpenAI") as mock_cls:
+        _default_openai_client()
+    assert "base_url" not in mock_cls.call_args.kwargs
 
 
 def test_run_skill_tools_param_shape(storage_client):
