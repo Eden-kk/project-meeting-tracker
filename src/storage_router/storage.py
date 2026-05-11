@@ -45,9 +45,9 @@ def create_artifact(
 
 
 def create_meeting(
-    session, *, artifact_id: str, status: str = "processing"
+    session, *, artifact_id: str, title: str = "", status: str = "processing"
 ) -> MeetingRow:
-    row = MeetingRow(id=new_id("m"), artifact_id=artifact_id, status=status)
+    row = MeetingRow(id=new_id("m"), artifact_id=artifact_id, title=title, status=status)
     session.add(row)
     session.flush()
     return row
