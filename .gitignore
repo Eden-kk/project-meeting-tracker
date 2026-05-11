@@ -1,4 +1,4 @@
-# Python (storage-router, transcript-ingest, future voice-ingest)
+# Python (storage-router, transcript-ingest, voice-ingest)
 .venv/
 var/
 __pycache__/
@@ -14,6 +14,10 @@ __pycache__/
 build/
 htmlcov/
 
+# Voice-ingest specifics (Whisper model cache + audio scratch)
+models/
+audio_scratch/
+
 # Node / Vite (frontend)
 node_modules/
 dist/
@@ -21,6 +25,6 @@ playwright-report/
 test-results/
 coverage/
 
-# Editor / tooling
+# Editor / tooling / scratch
 .claude/
 .worktrees/
