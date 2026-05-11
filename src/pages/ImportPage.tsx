@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { importConversation, type ImportInput, type Visibility } from '../api/client';
 import { MAX_UPLOAD_BYTES } from '../lib/constants';
+import { upsert as upsertMeeting, type StoredMeetingSummary } from '../lib/meetingsRegistry';
 import axios from 'axios';
 
 type Mode = 'upload' | 'paste';
@@ -17,6 +18,12 @@ const ACCEPT = {
 
 function classifyFile(file: File): 'voice_file' | 'transcript_file' {
   return file.type.startsWith('audio/') ? 'voice_file' : 'transcript_file';
+}
+
+function pickSourceType(mode: Mode, file: File | null): StoredMeetingSummary['source_type'] {
+  if (mode === 'paste') return 'pasted_transcript';
+  if (file) return classifyFile(file);
+  return 'pasted_transcript';
 }
 
 function friendlyImportError(detail: unknown): string {
@@ -59,7 +66,18 @@ export default function ImportPage() {
   const mutation = useMutation({
     mutationFn: (input: ImportInput) => importConversation(input),
     onSuccess: (data) => {
-      localStorage.setItem('meeting-title:' + data.meeting_id, title);
+      const now = new Date().toISOString();
+      upsertMeeting({
+        meeting_id: data.meeting_id,
+        artifact_id: data.artifact_id,
+        title: title.trim(),
+        imported_at: now,
+        last_seen_at: now,
+        source_type: pickSourceType(mode, file),
+        detected_pattern: null,
+        evidence_quality: 'unknown',
+        status: 'processing',
+      });
       navigate(`/meetings/${data.meeting_id}/processing`);
     },
   });
@@ -97,7 +115,7 @@ export default function ImportPage() {
 
   return (
     <form onSubmit={onSubmit} className="mx-auto max-w-xl space-y-4">
-      <h1 className="text-xl font-semibold">Import a conversation</h1>
+      <h1 className="text-2xl font-semibold">Import a conversation</h1>
 
       <div className="flex gap-2" role="tablist">
         <button
