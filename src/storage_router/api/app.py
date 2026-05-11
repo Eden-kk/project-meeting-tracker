@@ -10,7 +10,13 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from storage_router.api import import_route, meetings_route, memory_cards_route, qa_route
+from storage_router.api import (
+    import_route,
+    live_route,
+    meetings_route,
+    memory_cards_route,
+    qa_route,
+)
 from storage_router.blob import LocalFsBlobStore
 from storage_router.config import settings
 from storage_router.db import engine
@@ -57,6 +63,7 @@ def create_app() -> FastAPI:
         _ensure_dev_seed()
 
     app.include_router(import_route.router)
+    app.include_router(live_route.router)
     app.include_router(meetings_route.router)
     app.include_router(memory_cards_route.router)
     app.include_router(qa_route.router)
