@@ -340,11 +340,21 @@ export interface paths {
          * Finalize a meeting via Hermes
          * @description Runs `hermes_plugin.meeting_finalization`, persists returned cards as
          *     `draft` MemoryCards, marks the meeting `finalized`, and returns a summary.
-         *     Synchronous in Phase 2; long-running calls block.
+         *     Synchronous in Phase 2; long-running calls block. For timestamped
+         *     transcripts the plugin chunks the meeting into `chunk_minutes`-sized
+         *     windows and runs one Claude pass per window so long meetings don't
+         *     exceed the model context budget.
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    /**
+                     * @description Time-window size (in minutes) used by the chunked extractor.
+                     *     Out-of-range values return 422. Untimestamped transcripts fall
+                     *     back to single-pass finalization regardless of this value.
+                     */
+                    chunk_minutes?: number;
+                };
                 header?: never;
                 path: {
                     id: string;
@@ -584,21 +594,33 @@ export interface components {
             finalized_at: string;
             cards_created: number;
             summary: string;
+            /**
+             * @description Number of transcript chunks the chunked extractor processed.
+             *     Defaults to 1 for the legacy single-pass finalization path.
+             * @default 1
+             */
+            chunks_processed: number;
         };
         QARequest: {
             meeting_id: string;
             question: string;
         };
         QAEvidenceItem: {
-            chunk_id: string;
+            segment_id: string;
+            speaker: string;
             text: string;
-            speaker?: string | null;
-            start_ms?: number | null;
-            end_ms?: number | null;
+            /** @default 0 */
+            start_ms: number;
+            /** @default 0 */
+            end_ms: number;
         };
         QAResponse: {
             answer: string;
-            evidence: components["schemas"]["QAEvidenceItem"][];
+            /** @default 0.85 */
+            confidence: number;
+            citations: components["schemas"]["QAEvidenceItem"][];
+            /** @default false */
+            weak_evidence: boolean;
         };
     };
     responses: never;

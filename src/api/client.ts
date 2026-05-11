@@ -134,8 +134,9 @@ export type LiveSegmentsResponse = {
 
 export type LiveChunkAccepted = {
   seq: number;
-  segment_id: string;
+  segments_added: number;
   bytes: number;
+  transcribed: boolean;
 };
 
 export async function createLiveMeeting(title: string): Promise<LiveMeetingCreated> {

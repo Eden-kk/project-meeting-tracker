@@ -9,7 +9,7 @@ import {
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
 
-const CHUNK_MS = 5000;
+const CHUNK_MS = 10000;
 const POLL_MS = 2000;
 
 /**
@@ -17,8 +17,8 @@ const POLL_MS = 2000;
  *
  * Flow:
  *   1. User clicks "Start meeting" -> POST /api/live-meetings.
- *   2. Browser MediaRecorder is started with `timeslice=5000`, so the
- *      `dataavailable` callback fires every ~5s with one WebM blob.
+ *   2. Browser MediaRecorder is started with `timeslice=CHUNK_MS`, so the
+ *      `dataavailable` callback fires every ~10s with one WebM blob.
  *   3. Each blob is uploaded via POST /api/live-meetings/{id}/audio-chunk.
  *   4. A 2s polling loop refreshes the live transcript panel.
  *   5. "End meeting" stops the recorder, drains any pending chunk, and
@@ -41,6 +41,7 @@ export default function LivePage() {
   const meetingRef = useRef<string | null>(null);
   const lastSegIdRef = useRef<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const phaseRef = useRef<Phase>('idle');
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -74,6 +75,7 @@ export default function LivePage() {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
       setErrorMsg('This browser does not expose a microphone API.');
       setPhase('error');
+      phaseRef.current = 'error';
       return;
     }
     try {
@@ -86,33 +88,54 @@ export default function LivePage() {
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      recorderRef.current = recorder;
 
-      recorder.ondataavailable = async (event) => {
-        if (event.data.size === 0) return;
-        const id = meetingRef.current;
-        if (!id) return;
-        const seq = seqRef.current;
-        seqRef.current += 1;
-        try {
-          await uploadLiveChunk(id, event.data, seq);
-        } catch (err) {
-          console.warn('chunk upload failed', err);
-        }
-      };
+      // Start one MediaRecorder segment. When it stops, schedule the next
+      // so each chunk gets its own EBML init segment and is self-contained.
+      function startSegment() {
+        if (!streamRef.current) return;
+        const recorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm' });
+        recorderRef.current = recorder;
 
-      recorder.start(CHUNK_MS);
+        recorder.ondataavailable = async (event) => {
+          if (event.data.size === 0) return;
+          const id = meetingRef.current;
+          if (!id) return;
+          const seq = seqRef.current;
+          seqRef.current += 1;
+          try {
+            await uploadLiveChunk(id, event.data, seq);
+          } catch (err) {
+            console.warn('chunk upload failed', err);
+          }
+        };
+
+        recorder.onstop = () => {
+          // Chain next segment only while still recording.
+          if (phaseRef.current === 'recording') {
+            startSegment();
+          }
+        };
+
+        recorder.start();
+        setTimeout(() => {
+          if (recorder.state === 'recording') recorder.stop();
+        }, CHUNK_MS);
+      }
+
+      phaseRef.current = 'recording';
       setPhase('recording');
+      startSegment();
       startPolling();
     } catch (err) {
       console.error(err);
       setErrorMsg(err instanceof Error ? err.message : 'Could not start meeting.');
+      phaseRef.current = 'error';
       setPhase('error');
     }
   }, [startPolling, title]);
 
   const handleStop = useCallback(async () => {
+    phaseRef.current = 'ending';
     setPhase('ending');
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
@@ -131,6 +154,7 @@ export default function LivePage() {
       await pollSegments();
     }
     stopPolling();
+    phaseRef.current = 'ended';
     setPhase('ended');
   }, [pollSegments, stopPolling]);
 
@@ -146,8 +170,8 @@ export default function LivePage() {
       <header>
         <h1 className="text-2xl font-semibold">Live meeting</h1>
         <p className="text-sm text-gray-600">
-          Capture a meeting straight from your microphone. Chunks upload every
-          5 seconds.
+          Capture a meeting straight from your microphone. Chunks upload every{' '}
+          {CHUNK_MS / 1000} seconds.
         </p>
       </header>
 
@@ -212,6 +236,11 @@ export default function LivePage() {
                 <span className="mr-2 text-gray-400">
                   {s.start_ms != null ? `${(s.start_ms / 1000).toFixed(0)}s` : '·'}
                 </span>
+                {s.speaker_name && (
+                  <span className="mr-2 font-medium text-gray-700">
+                    {s.speaker_name}:
+                  </span>
+                )}
                 <span>{s.text}</span>
               </li>
             ))}

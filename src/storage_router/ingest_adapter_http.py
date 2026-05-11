@@ -9,6 +9,7 @@ ceiling; transcript_ingest is sub-second and gets a tight one.
 """
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -25,10 +26,20 @@ def transcribe_voice_file(path: Path) -> NormalizedTranscript:
     """
     url = settings.voice_ingest_url.rstrip("/") + "/voice/transcribe"
     with open(path, "rb") as f:
-        files = {"audio": (path.name, f, "application/octet-stream")}
+        files = {"audio": (path.name, f, "audio/webm")}
         resp = httpx.post(url, files=files, timeout=settings.voice_ingest_timeout_seconds)
     resp.raise_for_status()
     return NormalizedTranscript.model_validate(resp.json())
+
+
+async def transcribe_voice_file_async(path: Path) -> NormalizedTranscript:
+    """Async wrapper: runs the blocking httpx.post in a thread so the event
+    loop is not stalled during Whisper STT (which can take many seconds).
+
+    Callers in async route handlers MUST use this variant so that concurrent
+    requests (e.g. a second audio-chunk or /end) are not blocked.
+    """
+    return await asyncio.to_thread(transcribe_voice_file, path)
 
 
 def parse_transcript(
