@@ -9,7 +9,23 @@ function stepsFor(status: Meeting['status']): Step[] {
       { label: 'Failed', state: 'failed' },
     ];
   }
-  if (status === 'ready' || status === 'finalized') {
+  if (status === 'finalized') {
+    return [
+      { label: 'Conversation received', state: 'done' },
+      { label: 'Transcribing/parsing', state: 'done' },
+      { label: 'Normalizing', state: 'done' },
+      { label: 'Hermes extraction', state: 'done' },
+    ];
+  }
+  if (status === 'finalizing') {
+    return [
+      { label: 'Conversation received', state: 'done' },
+      { label: 'Transcribing/parsing', state: 'done' },
+      { label: 'Normalizing', state: 'done' },
+      { label: 'Hermes extraction', state: 'active' },
+    ];
+  }
+  if (status === 'ready') {
     return [
       { label: 'Conversation received', state: 'done' },
       { label: 'Transcribing/parsing', state: 'done' },
@@ -42,8 +58,8 @@ export function StatusTimeline({ status }: { status: Meeting['status'] }) {
           <span className={`inline-block h-3 w-3 rounded-full ${dotClass[step.state]}`} />
           <span className={step.state === 'failed' ? 'text-red-600' : ''}>
             {step.label}
-            {step.label === 'Hermes extraction' && (
-              <span className="ml-2 text-xs text-gray-500">— arrives in Phase 2</span>
+            {step.label === 'Hermes extraction' && step.state === 'active' && (
+              <span className="ml-2 text-xs text-blue-600">— extracting…</span>
             )}
           </span>
         </li>

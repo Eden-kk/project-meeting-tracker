@@ -93,3 +93,19 @@ def process_artifact(artifact_id: str) -> None:
             except Exception:
                 log.exception("dispatcher: also failed to mark failed for %s", artifact_id)
                 session.rollback()
+            return
+
+    # Phase-3 auto-finalize: outside the parsing transaction, fire
+    # Hermes finalize. The runtime opens its own session and walks
+    # status through `finalizing → finalized`, or reverts to `ready`
+    # with last_finalize_error set on failure. Inline-import the runtime
+    # so test monkeypatches against
+    # `storage_router.hermes_runtime.auto_finalize_meeting` take effect.
+    from storage_router import hermes_runtime
+
+    try:
+        hermes_runtime.auto_finalize_meeting(meeting_id)
+    except Exception:  # noqa: BLE001 — must not crash the dispatcher.
+        log.exception(
+            "dispatcher: auto-finalize raised for meeting %s", meeting_id
+        )

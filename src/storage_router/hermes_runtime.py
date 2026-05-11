@@ -3,8 +3,29 @@
 The Phase-2 default is to import Hermes directly. If the plugin is not
 installed in the current venv (worktree F has not landed yet), the resolver
 raises HermesUnavailable so the route can map it to a 503.
+
+Phase-3 auto-finalize: this module also owns the
+``auto_finalize_meeting(meeting_id)`` background-task entry. It opens
+its own Session (FastAPI BackgroundTasks run after the request session
+has closed), drives the meeting through ``ready → finalizing → finalized``
+(or back to ``ready`` on failure with ``last_finalize_error`` set), and
+uses an in-process semaphore to cap concurrent finalize calls at 2 — a
+cheap guard against the Anthropic rate-limit blast radius described in
+plans/misty-seeking-lantern.md (Risks section).
 """
 from __future__ import annotations
+
+import logging
+import threading
+from datetime import UTC, datetime
+
+# threading.BoundedSemaphore works for both sync and async callers:
+# Starlette's BackgroundTasks runs a non-async callable in a worker
+# thread, so a thread-aware primitive is the right shape here.
+_FINALIZE_CONCURRENCY = 2
+_finalize_semaphore = threading.BoundedSemaphore(_FINALIZE_CONCURRENCY)
+
+log = logging.getLogger(__name__)
 
 
 class HermesUnavailable(RuntimeError):
@@ -33,3 +54,110 @@ def run_meeting_qa(meeting_id: str, question: str) -> dict:
     if fn is None:
         raise HermesUnavailable("hermes_plugin.meeting_qa not exported")
     return fn(meeting_id=meeting_id, question=question)
+
+
+def auto_finalize_meeting(meeting_id: str) -> None:
+    """Background-task entry: drive ``ready → finalizing → finalized``.
+
+    Opens its own Session (the request-scoped one is gone by the time
+    this runs). Persists every card the plugin returns. On failure the
+    meeting status reverts to ``ready`` and ``last_finalize_error`` is
+    populated; the caller never sees an exception bubble up — this is
+    fire-and-forget per FastAPI BackgroundTasks contract.
+    """
+    # Cheap rate-limit mitigation. If we cannot acquire within ~30s the
+    # task aborts and leaves status at `ready` so the next manual or
+    # auto trigger can have another go.
+    acquired = _finalize_semaphore.acquire(timeout=30.0)
+    if not acquired:
+        log.warning(
+            "auto_finalize_meeting: timed out waiting for finalize slot (meeting=%s)",
+            meeting_id,
+        )
+        return
+    try:
+        _finalize_inner(meeting_id)
+    finally:
+        _finalize_semaphore.release()
+
+
+def _finalize_inner(meeting_id: str) -> None:
+    """The transactional body of auto_finalize_meeting, factored out so
+    tests can monkeypatch the runtime call site cleanly."""
+    # Local imports avoid a circular import at module load time.
+    from sqlalchemy import select
+
+    from storage_router import storage
+    from storage_router.db import SessionLocal
+    from storage_router.models.db import MeetingRow
+    from storage_router.models.memory_cards import MemoryCardCreate
+
+    with SessionLocal() as session:
+        meeting = session.execute(
+            select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
+        ).scalar_one_or_none()
+        if meeting is None:
+            log.warning("auto_finalize_meeting: meeting %s missing", meeting_id)
+            return
+        if meeting.status != "ready":
+            log.info(
+                "auto_finalize_meeting: skipping meeting=%s (status=%s, expected ready)",
+                meeting_id,
+                meeting.status,
+            )
+            return
+        meeting.status = "finalizing"
+        # Clear any prior error from a previous attempt.
+        meeting.last_finalize_error = None
+        session.commit()
+
+    try:
+        result = run_meeting_finalization(meeting_id)
+    except Exception as exc:  # noqa: BLE001 — fire-and-forget surface.
+        log.exception(
+            "auto_finalize_meeting: hermes call failed (meeting=%s)", meeting_id
+        )
+        with SessionLocal() as session:
+            meeting = session.get(MeetingRow, meeting_id)
+            if meeting is not None:
+                meeting.status = "ready"
+                meeting.last_finalize_error = str(exc)[:1000]
+                session.commit()
+        return
+
+    try:
+        with SessionLocal() as session:
+            meeting = session.execute(
+                select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
+            ).scalar_one()
+
+            cards_in = [MemoryCardCreate(**c) for c in result.get("cards", [])]
+            for card in cards_in:
+                storage.create_memory_card(
+                    session,
+                    meeting_id=meeting_id,
+                    type=card.type.value,
+                    title=card.title,
+                    content=card.content,
+                    source_chunk_ids=card.source_chunk_ids,
+                    confidence=card.confidence,
+                    source_start_ms=card.source_start_ms,
+                    source_end_ms=card.source_end_ms,
+                    speakers_json=card.speakers_json,
+                    created_by_agent=card.created_by_agent,
+                )
+
+            meeting.status = "finalized"
+            meeting.finalized_at = datetime.now(UTC)
+            meeting.last_finalize_error = None
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "auto_finalize_meeting: persistence failed (meeting=%s)", meeting_id
+        )
+        with SessionLocal() as session:
+            meeting = session.get(MeetingRow, meeting_id)
+            if meeting is not None:
+                meeting.status = "ready"
+                meeting.last_finalize_error = f"persist_failed: {exc}"[:1000]
+                session.commit()

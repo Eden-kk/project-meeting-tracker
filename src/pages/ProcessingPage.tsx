@@ -17,7 +17,10 @@ export default function ProcessingPage() {
     retry: false,
     refetchInterval: (q) => {
       const s = q.state.data?.status;
-      if (s === 'ready' || s === 'failed') return false;
+      // Phase-3 auto-finalize: keep polling through `ready` so we catch
+      // the `finalizing → finalized` flip without forcing a manual
+      // refresh; stop only at terminal states.
+      if (s === 'finalized' || s === 'failed') return false;
       return POLL_INTERVAL_MS;
     },
   });
@@ -25,7 +28,13 @@ export default function ProcessingPage() {
   useEffect(() => {
     if (!query.data) return;
     patchMeeting(id, { status: query.data.status, last_seen_at: new Date().toISOString() });
-    if (query.data.status === 'ready') {
+    // Navigate as soon as the transcript is queryable; the meeting page
+    // can show a `finalizing` chip while Hermes runs in the background.
+    if (
+      query.data.status === 'ready' ||
+      query.data.status === 'finalizing' ||
+      query.data.status === 'finalized'
+    ) {
       navigate(`/meetings/${id}`, { replace: true });
     }
   }, [query.data, id, navigate]);
