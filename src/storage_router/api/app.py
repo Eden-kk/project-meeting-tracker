@@ -1,9 +1,13 @@
 """FastAPI app factory."""
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from storage_router.api import import_route, meetings_route
@@ -44,10 +48,35 @@ def create_app() -> FastAPI:
     def _startup() -> None:
         _ensure_dev_seed()
 
-    @app.get("/", include_in_schema=False)
-    def _root() -> RedirectResponse:
-        return RedirectResponse(url="/docs")
-
     app.include_router(import_route.router)
     app.include_router(meetings_route.router)
+
+    # Optional: serve a built frontend SPA out of the same origin.
+    # Set FRONTEND_DIST=/path/to/frontend/dist when launching to enable.
+    frontend_dist = os.environ.get("FRONTEND_DIST")
+    if frontend_dist and Path(frontend_dist).is_dir():
+        dist_path = Path(frontend_dist)
+
+        @app.get("/", include_in_schema=False)
+        def _index() -> FileResponse:
+            return FileResponse(dist_path / "index.html")
+
+        # SPA fallback: any unknown non-/api path returns index.html so client
+        # routing (react-router) can take over.
+        app.mount("/assets", StaticFiles(directory=dist_path / "assets"), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def _spa(full_path: str) -> FileResponse:
+            if full_path.startswith("api/") or full_path == "docs" or full_path.startswith("docs/") or full_path == "openapi.json":
+                # Let FastAPI's default 404 handle these
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Not Found")
+            candidate = dist_path / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(dist_path / "index.html")
+    else:
+        @app.get("/", include_in_schema=False)
+        def _root() -> RedirectResponse:
+            return RedirectResponse(url="/docs")
     return app
