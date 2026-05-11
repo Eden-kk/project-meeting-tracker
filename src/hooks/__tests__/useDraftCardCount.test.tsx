@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { useDraftCardCount } from '../useDraftCardCount';
+import { useTotalCardCount } from '../useDraftCardCount';
 import * as client from '../../api/client';
 import * as registry from '../../lib/meetingsRegistry';
 
@@ -25,7 +25,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
-describe('useDraftCardCount', () => {
+describe('useTotalCardCount', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
@@ -34,22 +34,24 @@ describe('useDraftCardCount', () => {
     registry.upsert(summary('m2'));
   });
 
-  it('sums per-meeting draft totals across the meeting list', async () => {
+  it('sums per-meeting visible totals across the meeting list', async () => {
     vi.spyOn(client, 'listMeetings').mockRejectedValue(new Error('offline'));
     const spy = vi
       .spyOn(client, 'listMeetingCards')
       .mockImplementation(async (id) => ({
         items: [],
-        total: id === 'm1' ? 2 : 0,
+        total: id === 'm1' ? 2 : 1,
       }));
 
-    const { result } = renderHook(() => useDraftCardCount(), { wrapper });
+    const { result } = renderHook(() => useTotalCardCount(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
     });
-    expect(result.current.count).toBe(2);
-    expect(spy).toHaveBeenCalledWith('m1', { state: 'draft' });
-    expect(spy).toHaveBeenCalledWith('m2', { state: 'draft' });
+    expect(result.current.count).toBe(3);
+    // Phase-3: there is no `state` filter; the hook calls listMeetingCards
+    // with no filter argument at all.
+    expect(spy).toHaveBeenCalledWith('m1');
+    expect(spy).toHaveBeenCalledWith('m2');
   });
 });

@@ -1,6 +1,10 @@
-/** PLACEHOLDER — replaced by pnpm gen:api once worktree G merges. */
-
-export type MemoryCardState = 'draft' | 'committed' | 'rejected';
+/** PLACEHOLDER — replaced by `pnpm gen:api` once worktree G merges.
+ *
+ *  Phase-3 redesign: dropped `MemoryCardState` (no per-card state machine
+ *  on the server anymore) and `needs_review`. Added `hidden_at` and
+ *  `superseded_by_id` from the agent quality surface; the list endpoint
+ *  hides agent-soft-deleted rows by default.
+ */
 
 export type MemoryCardType =
   | 'decision'
@@ -16,11 +20,12 @@ export type MemoryCard = {
   memory_card_id: string;
   meeting_id: string;
   type: MemoryCardType;
-  state: MemoryCardState;
   title: string;
   content: string;
   speakers: string[];
   source_chunk_ids: string[];
+  hidden_at: string | null;
+  superseded_by_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -38,17 +43,6 @@ export type CreateMemoryCardInput = {
   speakers?: string[];
   source_chunk_ids?: string[];
 };
-
-export type PatchMemoryCardInput = {
-  title?: string;
-  content?: string;
-  type?: MemoryCardType;
-  speakers?: string[];
-  source_chunk_ids?: string[];
-};
-
-export type CommitCardResponse = { card: MemoryCard };
-export type RejectCardResponse = { card: MemoryCard };
 
 export type FinalizeMeetingResponse = {
   meeting_id: string;
