@@ -74,6 +74,17 @@ pnpm install && pnpm dev
 
 (In practice this repo currently uses one `.venv` per service worktree under `worktrees/`; the per-service requirements files at root let any worktree install only what it needs.)
 
+## LLM provider selection
+
+The hermes plugin runtime can drive skills against either Anthropic Claude (default) or OpenAI's chat.completions API. Selection is per-process via the `LLM_PROVIDER` env var:
+
+| `LLM_PROVIDER`        | Backend                                | Default model            | Required env var      |
+| --------------------- | -------------------------------------- | ------------------------ | --------------------- |
+| `anthropic` (default) | `hermes_plugin.runtime.run_skill`      | `claude-sonnet-4-5`      | `ANTHROPIC_API_KEY`   |
+| `openai`              | `hermes_plugin.runtime_openai.run_skill` | `gpt-4o-2024-11-20`    | `OPENAI_API_KEY`      |
+
+Both backends share the same `TOOL_REGISTRY`, the same SKILL.md prompts, and the same `{final_text, tool_calls, iterations}` return shape. The dispatcher lives in `hermes_plugin.llm.run_skill`; both `meeting_finalization()` and `meeting_qa()` shims route through it. Unknown values raise `ValueError`. The chunked-extraction runtime (`run_chunked_extraction`) remains Anthropic-only for now.
+
 ## Status
 
 Phase 1 complete: design doc at `docs/design-doc.md`, roadmap at `docs/roadmap.md`. The five Phase-1 worktrees and the integration are all merged.

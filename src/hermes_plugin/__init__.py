@@ -22,8 +22,9 @@ def meeting_finalization(meeting_id: str) -> dict:
 
     Thin shim over ``run_skill('meeting-finalization', meeting_id=...)`` that
     maps the storage-router contract (no ``user_question``) to ``run_skill``.
+    Routes through the LLM dispatcher so ``LLM_PROVIDER`` selects the backend.
     """
-    from .runtime import run_skill as _run_skill
+    from .llm import run_skill as _run_skill
 
     return _run_skill(
         skill_name="meeting-finalization",
@@ -36,8 +37,9 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
     """Storage-router-facing entrypoint for /api/qa/meeting.
 
     Thin shim over ``run_skill('meeting-qa', meeting_id=..., user_question=question)``.
+    Routes through the LLM dispatcher so ``LLM_PROVIDER`` selects the backend.
     """
-    from .runtime import run_skill as _run_skill
+    from .llm import run_skill as _run_skill
 
     return _run_skill(
         skill_name="meeting-qa",
@@ -49,7 +51,7 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
 def __getattr__(name: str):
     if name == "run_skill":
         try:
-            from .runtime import run_skill as _run_skill
+            from .llm import run_skill as _run_skill
         except ImportError as exc:
             raise NotImplementedError(
                 "hermes_plugin.run_skill not yet implemented"
