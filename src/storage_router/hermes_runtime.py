@@ -62,7 +62,6 @@ def run_meeting_qa(meeting_id: str, question: str) -> dict:
     return fn(meeting_id=meeting_id, question=question)
 
 
-<<<<<<< HEAD
 def run_followup_draft(
     meeting_id: str,
     recipient: str | None = None,
@@ -80,7 +79,8 @@ def run_followup_draft(
     if fn is None:
         raise HermesUnavailable("hermes_plugin.followup_draft not exported")
     return fn(meeting_id=meeting_id, recipient=recipient, tone=tone)
-=======
+
+
 def run_workspace_qa(workspace_id: str, question: str) -> dict:
     """Wave 4.3: workspace-wide Hermes QA.
 
@@ -95,7 +95,6 @@ def run_workspace_qa(workspace_id: str, question: str) -> dict:
     if fn is None:
         raise HermesUnavailable("hermes_plugin.workspace_qa not exported")
     return fn(workspace_id=workspace_id, question=question)
->>>>>>> origin/feat/p6-global-ask-hermes
 
 
 def auto_finalize_meeting(meeting_id: str) -> None:

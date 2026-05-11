@@ -253,14 +253,11 @@ TOOL_JSON_SCHEMAS: dict[str, dict] = {
     "search_memory_cards": SearchMemoryCardsInput.model_json_schema(),
     "create_draft_memory_card": CreateDraftMemoryCardInput.model_json_schema(),
     "finalize_meeting_memory": FinalizeMeetingMemoryInput.model_json_schema(),
-<<<<<<< HEAD
     "update_card_confidence": UpdateCardConfidenceInput.model_json_schema(),
     "hide_card": HideCardInput.model_json_schema(),
     "supersede_card": SupersedeCardInput.model_json_schema(),
-=======
     "search_workspace_transcripts": SearchWorkspaceTranscriptsInput.model_json_schema(),
     "search_workspace_cards": SearchWorkspaceCardsInput.model_json_schema(),
->>>>>>> origin/feat/p6-global-ask-hermes
 }
 
 
@@ -278,18 +275,15 @@ __all__ = [
     "CreateDraftMemoryCardOutput",
     "FinalizeMeetingMemoryInput",
     "FinalizeMeetingMemoryOutput",
-<<<<<<< HEAD
     "UpdateCardConfidenceInput",
     "UpdateCardConfidenceOutput",
     "HideCardInput",
     "HideCardOutput",
     "SupersedeCardInput",
     "SupersedeCardOutput",
-=======
     "SearchWorkspaceTranscriptsInput",
     "SearchWorkspaceTranscriptsOutput",
     "SearchWorkspaceCardsInput",
     "SearchWorkspaceCardsOutput",
->>>>>>> origin/feat/p6-global-ask-hermes
     "TOOL_JSON_SCHEMAS",
 ]

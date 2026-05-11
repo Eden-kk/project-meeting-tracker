@@ -20,11 +20,8 @@ __all__ = [
     "TOOL_REGISTRY",
     "meeting_finalization",
     "meeting_qa",
-<<<<<<< HEAD
     "followup_draft",
-=======
     "workspace_qa",
->>>>>>> origin/feat/p6-global-ask-hermes
 ]
 
 

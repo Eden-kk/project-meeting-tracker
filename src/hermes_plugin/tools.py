@@ -25,17 +25,14 @@ from .schemas import (
     HideCardOutput,
     SearchMemoryCardsInput,
     SearchMemoryCardsOutput,
-<<<<<<< HEAD
     SupersedeCardInput,
     SupersedeCardOutput,
     UpdateCardConfidenceInput,
     UpdateCardConfidenceOutput,
-=======
     SearchWorkspaceCardsInput,
     SearchWorkspaceCardsOutput,
     SearchWorkspaceTranscriptsInput,
     SearchWorkspaceTranscriptsOutput,
->>>>>>> origin/feat/p6-global-ask-hermes
 )
 
 _AGENT_TAG = "hermes-plugin"
@@ -111,7 +108,6 @@ def finalize_meeting_memory(args: dict, client: StorageRouterClient) -> dict:
     return FinalizeMeetingMemoryOutput.model_validate(raw).model_dump(mode="json")
 
 
-<<<<<<< HEAD
 def update_card_confidence(args: dict, client: StorageRouterClient) -> dict:
     """Wave 2.1 audit pass: downgrade a card's confidence in-place."""
     try:
@@ -151,7 +147,8 @@ def supersede_card(args: dict, client: StorageRouterClient) -> dict:
     except StorageUnavailable as exc:
         raise _wrap_storage(exc) from exc
     return SupersedeCardOutput.model_validate(raw).model_dump(mode="json")
-=======
+
+
 def search_workspace_transcripts(args: dict, client: StorageRouterClient) -> dict:
     """Wave 4.3: cross-meeting FTS over speaker_segments, workspace-scoped."""
     try:
@@ -183,7 +180,6 @@ def search_workspace_cards(args: dict, client: StorageRouterClient) -> dict:
     except StorageUnavailable as exc:
         raise _wrap_storage(exc) from exc
     return SearchWorkspaceCardsOutput.model_validate(raw).model_dump(mode="json")
->>>>>>> origin/feat/p6-global-ask-hermes
 
 
 TOOL_REGISTRY: dict[str, Callable[[dict, StorageRouterClient], dict]] = {
@@ -191,14 +187,11 @@ TOOL_REGISTRY: dict[str, Callable[[dict, StorageRouterClient], dict]] = {
     "search_memory_cards": search_memory_cards,
     "create_draft_memory_card": create_draft_memory_card,
     "finalize_meeting_memory": finalize_meeting_memory,
-<<<<<<< HEAD
     "update_card_confidence": update_card_confidence,
     "hide_card": hide_card,
     "supersede_card": supersede_card,
-=======
     "search_workspace_transcripts": search_workspace_transcripts,
     "search_workspace_cards": search_workspace_cards,
->>>>>>> origin/feat/p6-global-ask-hermes
 }
 
 
@@ -213,7 +206,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "finalize_meeting_memory": (
         "Finalize a meeting: commit drafts and freeze the memory record."
     ),
-<<<<<<< HEAD
     "update_card_confidence": (
         "Audit pass: set a card's confidence to a new value (0-1) with a "
         "short reason. Use to downgrade weakly-supported cards without "
@@ -229,7 +221,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "canonical `winner` card. Hides the loser, points it at the "
         "winner, and appends its source chunks. Both cards must belong "
         "to the same meeting and neither may already be hidden."
-=======
+    ),
     "search_workspace_transcripts": (
         "Cross-meeting Postgres FTS over transcript segments within a "
         "workspace. Returns ranked hits keyed by segment_id + meeting_id "
@@ -240,7 +232,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "optionally filtered by card type. Returns ranked hits keyed by "
         "memory_card_id + meeting_id so the caller can cite them with "
         "[meeting:<id>:card:<id>]. Hidden cards are excluded automatically."
->>>>>>> origin/feat/p6-global-ask-hermes
     ),
 }
 
@@ -252,12 +243,9 @@ __all__ = [
     "search_memory_cards",
     "create_draft_memory_card",
     "finalize_meeting_memory",
-<<<<<<< HEAD
     "update_card_confidence",
     "hide_card",
     "supersede_card",
-=======
     "search_workspace_transcripts",
     "search_workspace_cards",
->>>>>>> origin/feat/p6-global-ask-hermes
 ]
