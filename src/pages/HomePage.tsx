@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useMeetingsRegistry } from '../hooks/useMeetingsRegistry';
+import { useMeetings } from '../hooks/useMeetings';
 import { MeetingCard } from '../components/MeetingCard';
 import { StatChip } from '../components/StatChip';
 import { EmptyState } from '../components/EmptyState';
@@ -36,10 +36,11 @@ function topSource(meetings: StoredMeetingSummary[]): string {
 }
 
 export default function HomePage() {
-  const meetings = useMeetingsRegistry();
-  const recent = [...meetings]
-    .sort((a, b) => b.imported_at.localeCompare(a.imported_at))
-    .slice(0, RECENT_LIMIT);
+  const { meetings } = useMeetings();
+  // Server already returns newest-first; preserve that order. For
+  // registry-only entries appended on the end, secondary sort by
+  // imported_at keeps recently-imported drafts near the top.
+  const recent = meetings.slice(0, RECENT_LIMIT);
 
   return (
     <div className="space-y-6">
