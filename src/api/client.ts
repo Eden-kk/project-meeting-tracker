@@ -90,7 +90,13 @@ export async function listMeetingCards(
     `/api/meetings/${meetingId}/memory-cards`,
     { params: filters },
   );
-  return res.data;
+  // The backend serialises the speakers field as `speakers_json`; normalise
+  // it to `speakers` so components can rely on the MemoryCard type shape.
+  const items = res.data.items.map((card: MemoryCard & { speakers_json?: string[] | null }) => ({
+    ...card,
+    speakers: card.speakers ?? card.speakers_json ?? [],
+  }));
+  return { ...res.data, items };
 }
 
 export async function createMemoryCard(input: CreateMemoryCardInput): Promise<MemoryCard> {
