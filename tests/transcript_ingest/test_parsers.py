@@ -7,7 +7,7 @@ from src.transcript_ingest.parsers.txt import parse_txt
 from src.transcript_ingest.parsers.json_parser import parse_json
 
 
-_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+_FIXTURES = Path(__file__).resolve().parent.parent.parent / "fixtures"
 
 _EXPECTED_MS = [
     (0, 5200),

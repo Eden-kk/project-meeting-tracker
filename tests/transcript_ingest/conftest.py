@@ -6,7 +6,8 @@ import pytest
 
 @pytest.fixture(scope="session")
 def worktree_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    # tests/transcript_ingest/conftest.py -> tests/transcript_ingest -> tests -> <worktree root>
+    return Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture(scope="session")
