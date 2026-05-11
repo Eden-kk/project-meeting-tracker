@@ -439,3 +439,138 @@ def list_action_items(
             }
         )
     return items, int(total)
+
+def search_segments_fts(
+    session,
+    *,
+    workspace_id: str,
+    query: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Postgres FTS over speaker_segments.search_tsv, scoped to a workspace.
+
+    Returns (rows, total). Each row is a dict with: segment_id, meeting_id,
+    meeting_title, speaker_name, start_ms, end_ms, text, rank, snippet.
+    Empty query returns (empty, 0) without touching the DB.
+    """
+    from sqlalchemy import text
+
+    q = (query or "").strip()
+    if not q:
+        return [], 0
+
+    sql_count = text(
+        """
+        SELECT COUNT(*)
+          FROM speaker_segments s
+          JOIN meetings m ON m.id = s.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND s.search_tsv @@ websearch_to_tsquery('english', :q)
+        """
+    )
+    total = session.execute(sql_count, {"ws": workspace_id, "q": q}).scalar_one()
+
+    sql_rows = text(
+        """
+        SELECT s.id              AS segment_id,
+               s.meeting_id      AS meeting_id,
+               m.title           AS meeting_title,
+               s.speaker_name    AS speaker_name,
+               s.speaker_id      AS speaker_id,
+               s.start_ms        AS start_ms,
+               s.end_ms          AS end_ms,
+               s.text            AS text,
+               ts_rank_cd(s.search_tsv, websearch_to_tsquery('english', :q)) AS rank,
+               ts_headline(
+                 'english', s.text, websearch_to_tsquery('english', :q),
+                 'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
+               ) AS snippet
+          FROM speaker_segments s
+          JOIN meetings m ON m.id = s.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND s.search_tsv @@ websearch_to_tsquery('english', :q)
+         ORDER BY rank DESC, s.start_ms NULLS LAST, s.id
+         LIMIT :lim OFFSET :off
+        """
+    )
+    rows = session.execute(
+        sql_rows, {"ws": workspace_id, "q": q, "lim": limit, "off": offset}
+    ).mappings().all()
+    return [dict(r) for r in rows], int(total)
+
+
+def search_cards_fts(
+    session,
+    *,
+    workspace_id: str,
+    query: str,
+    type: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Postgres FTS over memory_cards.search_tsv (title || ' ' || content),
+    scoped to a workspace. Honors `hidden_at IS NULL`.
+
+    Returns (rows, total). Each row dict has: memory_card_id, meeting_id,
+    meeting_title, type, title, content, confidence, source_start_ms,
+    source_end_ms, rank, snippet.
+    """
+    from sqlalchemy import text
+
+    q = (query or "").strip()
+    if not q:
+        return [], 0
+
+    type_clause = "AND c.type = :type " if type else ""
+    params: dict = {"ws": workspace_id, "q": q, "lim": limit, "off": offset}
+    if type:
+        params["type"] = type
+
+    sql_count = text(
+        f"""
+        SELECT COUNT(*)
+          FROM memory_cards c
+          JOIN meetings m ON m.id = c.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND c.hidden_at IS NULL
+           {type_clause}
+           AND c.search_tsv @@ websearch_to_tsquery('english', :q)
+        """
+    )
+    total = session.execute(sql_count, params).scalar_one()
+
+    sql_rows = text(
+        f"""
+        SELECT c.id              AS memory_card_id,
+               c.meeting_id      AS meeting_id,
+               m.title           AS meeting_title,
+               c.type            AS type,
+               c.title           AS title,
+               c.content         AS content,
+               c.confidence      AS confidence,
+               c.source_start_ms AS source_start_ms,
+               c.source_end_ms   AS source_end_ms,
+               ts_rank_cd(c.search_tsv, websearch_to_tsquery('english', :q)) AS rank,
+               ts_headline(
+                 'english',
+                 coalesce(c.title,'') || ' ' || coalesce(c.content,''),
+                 websearch_to_tsquery('english', :q),
+                 'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
+               ) AS snippet
+          FROM memory_cards c
+          JOIN meetings m ON m.id = c.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND c.hidden_at IS NULL
+           {type_clause}
+           AND c.search_tsv @@ websearch_to_tsquery('english', :q)
+         ORDER BY rank DESC, c.created_at DESC, c.id
+         LIMIT :lim OFFSET :off
+        """
+    )
+    rows = session.execute(sql_rows, params).mappings().all()
+    return [dict(r) for r in rows], int(total)
