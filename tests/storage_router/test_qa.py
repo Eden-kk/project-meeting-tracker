@@ -148,14 +148,35 @@ async def test_finalize_already_finalized_409(client, monkeypatch) -> None:
 
 # 5
 async def test_qa_happy_path(client, monkeypatch) -> None:
+    """The route translates the plugin's raw run_skill output into the
+    frontend's AskHermesResponse shape, joining [seg:<id>] citations
+    against the speaker_segments table."""
+    from storage_router.db import SessionLocal
+    from storage_router.models.db import SpeakerSegmentRow
+
     mid = _seed_meeting()
+    # Seed a segment so the route can resolve the [seg:c1] citation.
+    with SessionLocal() as s:
+        s.add(SpeakerSegmentRow(
+            id="c1",
+            meeting_id=mid,
+            speaker_id="alice",
+            speaker_name="Alice",
+            start_ms=0,
+            end_ms=5000,
+            text="we picked Postgres",
+            confidence=0.9,
+            source_type="pasted_transcript",
+            is_final=True,
+        ))
+        s.commit()
+
     monkeypatch.setattr(
         "storage_router.hermes_runtime.run_meeting_qa",
         lambda meeting_id, question: {
-            "answer": "Because Postgres.",
-            "evidence": [
-                {"chunk_id": "c1", "text": "we picked Postgres", "speaker": "alice"}
-            ],
+            "final_text": "Because Postgres. [seg:c1]",
+            "tool_calls": [],
+            "iterations": 1,
         },
     )
     r = await client.post(
@@ -163,9 +184,12 @@ async def test_qa_happy_path(client, monkeypatch) -> None:
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["answer"] == "Because Postgres."
-    assert len(body["evidence"]) == 1
-    assert body["evidence"][0]["chunk_id"] == "c1"
+    assert "Because Postgres" in body["answer"]
+    assert body["weak_evidence"] is False
+    assert len(body["citations"]) == 1
+    assert body["citations"][0]["segment_id"] == "c1"
+    assert body["citations"][0]["speaker"] == "Alice"
+    assert body["citations"][0]["text"] == "we picked Postgres"
 
 
 # 6
@@ -191,7 +215,7 @@ async def test_qa_empty_question_422(client) -> None:
 async def test_qa_unknown_meeting_404(client, monkeypatch) -> None:
     monkeypatch.setattr(
         "storage_router.hermes_runtime.run_meeting_qa",
-        lambda meeting_id, question: {"answer": "?", "evidence": []},
+        lambda meeting_id, question: {"answer": "?", "citations": []},
     )
     r = await client.post(
         "/api/qa/meeting",
