@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
 from storage_router.api import import_route, meetings_route
@@ -35,6 +36,10 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def _startup() -> None:
         _ensure_dev_seed()
+
+    @app.get("/", include_in_schema=False)
+    def _root() -> RedirectResponse:
+        return RedirectResponse(url="/docs")
 
     app.include_router(import_route.router)
     app.include_router(meetings_route.router)
