@@ -8,7 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 test('import → processing → review happy path', async ({ page }) => {
   const transcript = readFileSync(path.resolve(here, '../fixtures/sample_transcript.txt'), 'utf-8');
 
-  await page.goto('/');
+  await page.goto('/import');
   await page.getByRole('tab', { name: /paste transcript/i }).click();
   await page.getByLabel(/pasted transcript/i).fill(transcript);
   await page.getByLabel(/^title$/i).fill('E2E happy');

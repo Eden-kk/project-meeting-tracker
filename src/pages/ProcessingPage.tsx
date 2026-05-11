@@ -5,6 +5,7 @@ import { getMeeting } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { POLL_INTERVAL_MS } from '../lib/constants';
 import { StatusTimeline } from '../components/StatusTimeline';
+import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 export default function ProcessingPage() {
   const { id = '' } = useParams<{ id: string }>();
@@ -22,10 +23,12 @@ export default function ProcessingPage() {
   });
 
   useEffect(() => {
-    if (query.data?.status === 'ready') {
+    if (!query.data) return;
+    patchMeeting(id, { status: query.data.status, last_seen_at: new Date().toISOString() });
+    if (query.data.status === 'ready') {
       navigate(`/meetings/${id}`, { replace: true });
     }
-  }, [query.data?.status, id, navigate]);
+  }, [query.data, id, navigate]);
 
   if (query.isError) {
     return (
@@ -46,7 +49,7 @@ export default function ProcessingPage() {
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <h1 className="text-xl font-semibold">Processing</h1>
+      <h1 className="text-2xl font-semibold">Processing</h1>
       <StatusTimeline status={status} />
       {status === 'failed' && (
         <div className="rounded border border-red-200 bg-red-50 p-4">

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getMeeting, getMeetingTranscript } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
+import { get as getRegistryEntry, patch as patchMeeting } from '../lib/meetingsRegistry';
 
 const TABS: TabDef[] = [
   { id: 'summary', label: 'Summary' },
@@ -30,12 +31,22 @@ export default function MeetingReviewPage() {
     retry: false,
   });
 
+  useEffect(() => {
+    if (!meetingQuery.data) return;
+    patchMeeting(id, {
+      status: meetingQuery.data.status,
+      evidence_quality: meetingQuery.data.evidence_quality,
+      detected_pattern: meetingQuery.data.detected_pattern?.primary_pattern ?? null,
+      last_seen_at: new Date().toISOString(),
+    });
+  }, [meetingQuery.data, id]);
+
   if (meetingQuery.isError) {
     return (
       <div className="mx-auto max-w-3xl">
         <p>Meeting not found.</p>
         <Link to="/" className="text-sm text-blue-600 underline">
-          Back to import
+          Back to home
         </Link>
       </div>
     );
@@ -45,7 +56,7 @@ export default function MeetingReviewPage() {
 
   const meeting = meetingQuery.data;
   const segments = transcriptQuery.data?.segments ?? [];
-  const title = localStorage.getItem('meeting-title:' + meeting.meeting_id) ?? 'Untitled meeting';
+  const title = getRegistryEntry(meeting.meeting_id)?.title ?? 'Untitled meeting';
   const sourceType = segments[0]?.source_type ?? null;
   const detectedPattern = meeting.detected_pattern?.primary_pattern ?? 'Pending — Phase 2';
 

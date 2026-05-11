@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ImportPage from '../ImportPage';
 import * as client from '../../api/client';
+import { get as getRegistryEntry, _resetMigrationLatch } from '../../lib/meetingsRegistry';
 
 const navigateMock = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -28,6 +29,7 @@ describe('ImportPage', () => {
     navigateMock.mockReset();
     vi.restoreAllMocks();
     localStorage.clear();
+    _resetMigrationLatch();
   });
 
   it('shows error when title is empty and skips mutation', async () => {
@@ -60,7 +62,11 @@ describe('ImportPage', () => {
     expect(arg.pasted_transcript).toBe('hello world');
     expect(arg.title).toBe('My meeting');
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1/processing'));
-    expect(localStorage.getItem('meeting-title:m_1')).toBe('My meeting');
+    const entry = getRegistryEntry('m_1');
+    expect(entry?.title).toBe('My meeting');
+    expect(entry?.source_type).toBe('pasted_transcript');
+    expect(entry?.status).toBe('processing');
+    expect(localStorage.getItem('meeting-title:m_1')).toBeNull();
   });
 
   it('shows size error when file exceeds 100 MB', async () => {
