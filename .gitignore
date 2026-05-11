@@ -1,0 +1,13 @@
+.venv/
+var/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.env.local
+.claude/
+.coverage
+.ruff_cache/
+*.egg-info/
+build/
+dist/
