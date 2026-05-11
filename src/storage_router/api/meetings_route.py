@@ -16,6 +16,7 @@ def _meeting_to_contract(row) -> Meeting:
     return Meeting(
         meeting_id=row.id,
         artifact_id=row.artifact_id,
+        title=row.title,
         status=MeetingStatus(row.status),
         started_at=row.started_at,
         ended_at=row.ended_at,

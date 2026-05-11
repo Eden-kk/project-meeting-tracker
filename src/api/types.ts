@@ -74,6 +74,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/meetings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List meetings for a workspace */
+        get: {
+            parameters: {
+                query: {
+                    workspace_id: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Meeting"][];
+                            total: number;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/meetings/{id}": {
         parameters: {
             query?: never;
@@ -188,6 +231,8 @@ export interface components {
         Meeting: {
             meeting_id: string;
             artifact_id: string;
+            /** @default  */
+            title: string;
             /** @enum {string} */
             status: "live" | "processing" | "ready" | "finalized" | "failed";
             /** Format: date-time */
