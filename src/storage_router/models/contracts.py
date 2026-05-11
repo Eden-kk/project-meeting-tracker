@@ -137,6 +137,7 @@ class Meeting(BaseModel):
     model_config = ConfigDict(extra="forbid")
     meeting_id: str = Field(..., min_length=1)
     artifact_id: str = Field(..., min_length=1)
+    title: str = ""
     status: MeetingStatus
     started_at: datetime | None = None
     ended_at: datetime | None = None

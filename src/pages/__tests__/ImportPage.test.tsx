@@ -63,7 +63,11 @@ describe('ImportPage', () => {
     expect(arg.title).toBe('My meeting');
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1/processing'));
     const entry = getRegistryEntry('m_1');
-    expect(entry?.title).toBe('My meeting');
+    // Title is no longer cached client-side; it lives in Postgres and
+    // arrives via GET /api/meetings.  Registry keeps only the offline
+    // fields (source_type, status) so the in-flight row shows up in
+    // HomePage before the list refresh.
+    expect(entry?.title).toBe('');
     expect(entry?.source_type).toBe('pasted_transcript');
     expect(entry?.status).toBe('processing');
     expect(localStorage.getItem('meeting-title:m_1')).toBeNull();

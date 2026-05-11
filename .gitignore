@@ -1,4 +1,4 @@
-# Python
+# Python (storage-router, transcript-ingest, voice-ingest)
 .venv/
 var/
 __pycache__/
@@ -18,12 +18,13 @@ htmlcov/
 models/
 audio_scratch/
 
-# Node / Vite (frontend on main)
+# Node / Vite (frontend)
 node_modules/
 dist/
 playwright-report/
 test-results/
 coverage/
 
-# Editor / tooling
+# Editor / tooling / scratch
 .claude/
+.worktrees/

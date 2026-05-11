@@ -1,60 +1,79 @@
-# voice-ingest worktree (Phase 1, Worktree B)
+# project-meeting-tracker
 
-Owns the voice-file ingestion path: given an uploaded audio file, run local
-STT (faster-whisper) + speaker diarization (pyannote-audio) and emit a
-`NormalizedTranscript` that conforms to `schemas/normalized_transcript.schema.json`.
+A Hermes-powered meeting memory product. Three backend services + one frontend, all in this monorepo.
 
-See `SCOPE.md` for lane boundaries and `docs/design-doc.md` §11.1 for the
-overall pipeline context.
+## Layout
 
-## Contract surface
+| Path | What it is |
+|---|---|
+| `src/storage_router/` | FastAPI artifact router + Postgres persistence + ingest dispatcher. Hosts `/api/conversations/import`, `/api/meetings`, `/api/meetings/{id}`, `/api/meetings/{id}/transcript`, plus `/docs` (Swagger) and the built frontend SPA when `FRONTEND_DIST` is set. |
+| `src/transcript_ingest/` | Standalone FastAPI service (`POST /transcript/parse`). Detects format (txt/md/vtt/srt/json) and parses speakers + timestamps. |
+| `src/voice_ingest/` | Standalone FastAPI service (`POST /voice/transcribe`). Runs faster-whisper STT + pyannote diarization. |
+| `src/` (frontend roots: `src/api/`, `src/pages/`, `src/components/`, `src/layouts/`, `src/hooks/`, `src/lib/`, `src/mocks/`) | Vite + React + TypeScript SPA. |
+| `schemas/`, `migrations/`, `openapi/`, `fixtures/` | Tier-0 contracts shared by all services. |
+| `alembic/` | Storage-router migrations (Postgres). |
+| `tests/storage_router/`, `tests/transcript_ingest/`, `tests/voice_ingest/` | Per-service test suites. |
+| `e2e/` | Playwright end-to-end tests for the SPA. |
 
-- In-process: `from src.voice_ingest import transcribe_voice_file`
-- HTTP: `POST /voice/transcribe` (multipart upload), `GET /healthz`
+## Per-service docs
 
-This is the only surface other worktrees may consume.
+- `README-storage-router.md` — storage-router setup + DSN config
+- `README-transcript-ingest.md` — transcript-ingest setup
+- `README-voice-ingest.md` — voice-ingest setup (Whisper + diarization)
 
-## Setup
+## Per-service scopes (lane boundaries from the original parallel-development plan)
 
-```bash
-cd /home/yid042/projects/project-meeting-tracker/worktrees/voice-ingest
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-# Pre-download the medium Whisper model (~1.5 GB):
-python -c "from faster_whisper import WhisperModel; WhisperModel('medium', device='cpu', compute_type='int8', download_root='models')"
+- `SCOPE-storage-router.md` (Worktree D)
+- `SCOPE-transcript-ingest.md` (Worktree C)
+- `SCOPE-voice-ingest.md` (Worktree B)
+- `SCOPE-frontend.md` (Worktree E)
+
+## Deployment topology
+
+```
+                      browser
+                         │
+                         ▼
+                   single tunnel
+                         │
+                         ▼
+              storage-router (uvicorn :8000)
+       ┌──────────────────────────────────────────┐
+       │  /              → built frontend SPA     │
+       │  /docs          → FastAPI Swagger        │
+       │  /api/*         → JSON endpoints         │
+       └──────────────┬───────────────────────────┘
+                      │
+       ┌──────────────┼─────────────────────────┐
+       │              │                         │
+       ▼              ▼                         ▼
+  Postgres 16    voice-ingest               transcript-ingest
+                127.0.0.1:8021             127.0.0.1:8011
+                Whisper + diarize          format detect + parse
 ```
 
-## Environment variables
+Each service runs in its own venv; storage-router calls the ingest services over loopback HTTP. See PR #7 for the integration that wired this together.
 
-| Var | Default | Notes |
-|---|---|---|
-| `WHISPER_MODEL` | `medium` | `large-v3` is the opt-in upgrade (better zh accuracy, ~3 GB, GPU recommended). |
-| `WHISPER_DEVICE` | `auto` | `auto` resolves to `cuda` if available else `cpu`; explicit `cuda` / `cpu` accepted. |
-| `WHISPER_COMPUTE_TYPE` | `int8` on cpu, `float16` on cuda | Override only if you know what you want. |
-| `HF_TOKEN` | unset | Required for pyannote diarization. When unset, every segment falls back to `speaker_id="speaker_1"` (graceful degradation, see SCOPE.md). |
-| `PYANNOTE_PIPELINE` | `pyannote/speaker-diarization-3.1` | Pinned. |
-| `MODEL_CACHE_DIR` | `<worktree>/models/` | Gitignored. |
-| `MAX_UPLOAD_BYTES` | `209715200` (200 MB) | FastAPI 413 guard. |
+## Build + test (per service)
 
-## Running tests
-
-The bilingual round-trip test (`tests/test_voice_ingest.py`) needs `large-v3`
-on a CUDA device — `medium` on CPU misidentifies the English half of the
-Edge-TTS fixture as Chinese and fails the per-language similarity threshold.
+Each service has its own dependency manifest. Pick the relevant one:
 
 ```bash
-source .venv/bin/activate
-WHISPER_MODEL=large-v3 WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=float16 \
-  pytest -xvs tests/
+# storage-router (uses pyproject.toml)
+python3.12 -m venv .venv-storage && .venv-storage/bin/pip install -e '.[dev]'
+
+# transcript-ingest (light: webvtt-py + srt + fastapi)
+python3.12 -m venv .venv-transcript && .venv-transcript/bin/pip install -r requirements-transcript.txt
+
+# voice-ingest (heavy: faster-whisper + pyannote + torch + edge-tts)
+python3.12 -m venv .venv-voice && .venv-voice/bin/pip install -r requirements-voice.txt
+
+# frontend
+pnpm install && pnpm dev
 ```
 
-API tests run fine on the defaults (`medium`, cpu/int8).
+(In practice this repo currently uses one `.venv` per service worktree under `worktrees/`; the per-service requirements files at root let any worktree install only what it needs.)
 
-## Running the HTTP server
+## Status
 
-```bash
-source .venv/bin/activate
-uvicorn src.voice_ingest.api:app --host 127.0.0.1 --port 8011
-```
+Phase 1 complete: design doc at `docs/design-doc.md`, roadmap at `docs/roadmap.md`. The five Phase-1 worktrees and the integration are all merged.

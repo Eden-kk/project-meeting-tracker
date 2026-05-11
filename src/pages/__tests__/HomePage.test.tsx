@@ -1,10 +1,28 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HomePage from '../HomePage';
+import * as client from '../../api/client';
 import * as registry from '../../lib/meetingsRegistry';
+import type { Meeting } from '../../api/client';
 
-function fixture(id: string, overrides: Partial<registry.StoredMeetingSummary> = {}): registry.StoredMeetingSummary {
+function meetingFixture(overrides: Partial<Meeting> = {}): Meeting {
+  return {
+    meeting_id: 'm1',
+    artifact_id: 'a1',
+    title: 'Server meeting',
+    status: 'ready',
+    started_at: null,
+    ended_at: null,
+    finalized_at: null,
+    current_schema: null,
+    evidence_quality: 'medium',
+    ...overrides,
+  };
+}
+
+function summary(id: string, overrides: Partial<registry.StoredMeetingSummary> = {}): registry.StoredMeetingSummary {
   return {
     meeting_id: id,
     artifact_id: 'a' + id,
@@ -20,10 +38,13 @@ function fixture(id: string, overrides: Partial<registry.StoredMeetingSummary> =
 }
 
 function renderHome() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <HomePage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -31,37 +52,45 @@ describe('HomePage', () => {
   beforeEach(() => {
     localStorage.clear();
     registry._resetMigrationLatch();
+    vi.restoreAllMocks();
   });
 
-  it('shows empty state when registry is empty', () => {
+  it('shows empty state when API returns nothing and registry is empty', async () => {
+    vi.spyOn(client, 'listMeetings').mockResolvedValue({ items: [], total: 0 });
     renderHome();
-    expect(screen.getByRole('heading', { name: /no meetings yet/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /no meetings yet/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^new import$/i })).toHaveAttribute('href', '/import');
   });
 
-  it('shows stats and recent cards when registry has entries', () => {
-    act(() => {
-      registry.upsert(fixture('m1', { title: 'A', imported_at: '2025-02-01T00:00:00.000Z', status: 'processing' }));
-      registry.upsert(fixture('m2', { title: 'B', imported_at: '2025-02-02T00:00:00.000Z', status: 'failed' }));
-      registry.upsert(fixture('m3', { title: 'C', imported_at: '2025-02-03T00:00:00.000Z', status: 'ready' }));
+  it('renders stats and recent cards from the API list', async () => {
+    vi.spyOn(client, 'listMeetings').mockResolvedValue({
+      items: [
+        meetingFixture({ meeting_id: 'm3', title: 'C', status: 'ready' }),
+        meetingFixture({ meeting_id: 'm2', title: 'B', status: 'failed' }),
+        meetingFixture({ meeting_id: 'm1', title: 'A', status: 'processing' }),
+      ],
+      total: 3,
     });
     renderHome();
-    expect(screen.getByText('Total')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Total')).toBeInTheDocument());
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('1 / 1 / 1')).toBeInTheDocument();
-    // Most recent first
+    // First server entry comes first.
     const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
     expect(cards[0]).toHaveTextContent('C');
   });
 
-  it('caps recent cards at 6', () => {
+  it('falls back to registry on network failure and caps at 6 cards', async () => {
+    vi.spyOn(client, 'listMeetings').mockRejectedValue(new Error('offline'));
     act(() => {
       for (let i = 0; i < 9; i++) {
-        registry.upsert(fixture('m' + i, { imported_at: `2025-03-0${(i % 9) + 1}T00:00:00.000Z` }));
+        registry.upsert(summary('m' + i));
       }
     });
     renderHome();
-    const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
-    expect(cards).toHaveLength(6);
+    await waitFor(() => {
+      const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
+      expect(cards).toHaveLength(6);
+    });
   });
 });

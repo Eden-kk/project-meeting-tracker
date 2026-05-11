@@ -77,6 +77,7 @@ class MeetingRow(Base):
         nullable=False,
         unique=True,
     )
+    title: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     status: Mapped[str] = mapped_column(Text, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

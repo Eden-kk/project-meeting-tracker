@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useMeetingsRegistry } from '../hooks/useMeetingsRegistry';
+import { useMeetings } from '../hooks/useMeetings';
 import { MeetingCard } from '../components/MeetingCard';
 import { MeetingTable } from '../components/MeetingTable';
 import { EmptyState } from '../components/EmptyState';
@@ -23,7 +23,7 @@ function chipClass(active: boolean): string {
 }
 
 export default function MeetingsPage() {
-  const meetings = useMeetingsRegistry();
+  const { meetings } = useMeetings();
   const [search, setSearch] = useState('');
   const [sourceFilters, setSourceFilters] = useState<Set<StoredMeetingSummary['source_type']>>(new Set());
   const [statusFilters, setStatusFilters] = useState<Set<StoredMeetingSummary['status']>>(new Set());

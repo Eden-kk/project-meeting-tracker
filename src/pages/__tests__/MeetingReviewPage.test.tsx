@@ -12,6 +12,7 @@ function meetingFixture(): Meeting {
   return {
     meeting_id: 'm_fixture001',
     artifact_id: 'art_fixture001',
+    title: 'Fixture meeting',
     status: 'ready',
     started_at: null,
     ended_at: null,

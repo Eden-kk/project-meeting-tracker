@@ -66,11 +66,14 @@ export default function ImportPage() {
   const mutation = useMutation({
     mutationFn: (input: ImportInput) => importConversation(input),
     onSuccess: (data) => {
+      // Title now lives in Postgres; the registry entry only carries
+      // local-only fields (source_type, imported_at) so HomePage can
+      // show this row before GET /api/meetings catches up.
       const now = new Date().toISOString();
       upsertMeeting({
         meeting_id: data.meeting_id,
         artifact_id: data.artifact_id,
-        title: title.trim(),
+        title: '',
         imported_at: now,
         last_seen_at: now,
         source_type: pickSourceType(mode, file),
