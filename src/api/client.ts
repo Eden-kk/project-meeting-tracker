@@ -2,11 +2,13 @@ import axios from 'axios';
 import type { components } from './types';
 import { DEV_WORKSPACE_ID } from '../lib/constants';
 import type {
+  ActionItemListResponse,
   AskHermesInput,
   AskHermesResponse,
   CreateMemoryCardInput,
   EvidenceCitation,
   FinalizeMeetingResponse,
+  ListActionItemsParams,
   MemoryCard,
   MemoryCardListResponse,
   MemoryCardType,
@@ -103,5 +105,24 @@ export async function finalizeMeeting(meetingId: string): Promise<FinalizeMeetin
 
 export async function askHermes(input: AskHermesInput): Promise<AskHermesResponse> {
   const res = await api.post<AskHermesResponse>('/api/qa/meeting', input);
+  return res.data;
+}
+
+/** Wave 5.1 — cross-meeting action-items dashboard. */
+export async function listActionItems(
+  params: ListActionItemsParams,
+): Promise<ActionItemListResponse> {
+  const res = await api.get<ActionItemListResponse>('/api/action-items', { params });
+  return res.data;
+}
+
+/** Wave 5.2 — cross-meeting open-questions dashboard.
+ *
+ * Same query parameters as `listActionItems`; only the route differs.
+ */
+export async function listOpenQuestions(
+  params: ListActionItemsParams,
+): Promise<ActionItemListResponse> {
+  const res = await api.get<ActionItemListResponse>('/api/open-questions', { params });
   return res.data;
 }

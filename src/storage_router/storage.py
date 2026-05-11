@@ -1,6 +1,8 @@
 """Transactional repository functions over the Phase-1 ORM."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 
 from storage_router.ids import new_id
@@ -234,3 +236,91 @@ def list_meeting_cards(
 
 def get_memory_card(session, card_id: str) -> MemoryCardRow | None:
     return session.get(MemoryCardRow, card_id)
+
+
+def list_action_items(
+    session,
+    *,
+    workspace_id: str,
+    type: str = "action_item",
+    speaker: str | None = None,
+    meeting_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Workspace-wide cross-meeting list of visible memory cards of a single type.
+
+    Joins `memory_cards → meetings → conversation_artifacts` so the caller
+    can filter by `workspace_id` and surface the source meeting's title +
+    `finalized_at` next to each row.
+
+    Default `type="action_item"` powers /api/action-items; passing
+    `type="open_question"` reuses the same query for the open-questions
+    dashboard. `hidden_at IS NOT NULL` rows are always excluded.
+
+    Returns (items, total) where each item is a flat dict ready for the
+    Pydantic response model — joins are flattened here rather than in the
+    route so call-sites do not own SQL.
+    """
+    base = (
+        select(
+            MemoryCardRow,
+            MeetingRow.title.label("meeting_title"),
+            MeetingRow.finalized_at.label("meeting_finalized_at"),
+        )
+        .join(MeetingRow, MemoryCardRow.meeting_id == MeetingRow.id)
+        .join(
+            ConversationArtifactRow,
+            MeetingRow.artifact_id == ConversationArtifactRow.id,
+        )
+        .where(ConversationArtifactRow.workspace_id == workspace_id)
+        .where(MemoryCardRow.type == type)
+        .where(MemoryCardRow.hidden_at.is_(None))
+    )
+    if speaker is not None:
+        # speakers_json is a JSONB array of strings; case-insensitive
+        # contains check ('?' = top-level key) handles the common case.
+        base = base.where(MemoryCardRow.speakers_json.op("?")(speaker))
+    if meeting_id is not None:
+        base = base.where(MemoryCardRow.meeting_id == meeting_id)
+    if since is not None:
+        base = base.where(MemoryCardRow.created_at >= since)
+    if until is not None:
+        base = base.where(MemoryCardRow.created_at <= until)
+
+    total = session.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one()
+
+    rows = session.execute(
+        base.order_by(MemoryCardRow.created_at.desc(), MemoryCardRow.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+
+    items: list[dict] = []
+    for row in rows:
+        card = row[0]
+        items.append(
+            {
+                "memory_card_id": card.id,
+                "meeting_id": card.meeting_id,
+                "meeting_title": row.meeting_title or "",
+                "meeting_finalized_at": row.meeting_finalized_at,
+                "type": card.type,
+                "title": card.title,
+                "content": card.content,
+                "source_chunk_ids": list(card.source_chunk_ids),
+                "source_start_ms": card.source_start_ms,
+                "source_end_ms": card.source_end_ms,
+                "speakers_json": (
+                    list(card.speakers_json) if card.speakers_json is not None else None
+                ),
+                "confidence": card.confidence,
+                "created_at": card.created_at,
+                "updated_at": card.updated_at,
+            }
+        )
+    return items, int(total)

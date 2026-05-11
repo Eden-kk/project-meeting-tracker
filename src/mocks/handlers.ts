@@ -6,6 +6,8 @@ import type {
   NormalizedTranscript,
 } from '../api/client';
 import type {
+  ActionItemListResponse,
+  ActionItemRow,
   AskHermesResponse,
   EvidenceCitation,
   FinalizeMeetingResponse,
@@ -39,6 +41,41 @@ function currentStatus(entry: Entry): Meeting['status'] {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function cardToRow(card: MemoryCard, meetingTitle: string, finalizedAt: string | null): ActionItemRow {
+  return {
+    memory_card_id: card.memory_card_id,
+    meeting_id: card.meeting_id,
+    meeting_title: meetingTitle,
+    meeting_finalized_at: finalizedAt,
+    type: card.type,
+    title: card.title,
+    content: card.content,
+    source_chunk_ids: card.source_chunk_ids ?? [],
+    speakers_json: card.speakers ?? null,
+    confidence: 0.85,
+    created_at: card.created_at,
+    updated_at: card.updated_at,
+  };
+}
+
+function dashboardResponse(request: Request, type: MemoryCardType): Response {
+  const url = new URL(request.url);
+  const speaker = url.searchParams.get('speaker');
+  const meetingIdFilter = url.searchParams.get('meeting_id');
+  const items: ActionItemRow[] = [];
+  for (const [, entry] of meetings.entries()) {
+    if (meetingIdFilter && entry.meeting.meeting_id !== meetingIdFilter) continue;
+    for (const c of entry.cards) {
+      if (c.type !== type) continue;
+      if (c.hidden_at !== null) continue;
+      if (speaker && !(c.speakers ?? []).includes(speaker)) continue;
+      items.push(cardToRow(c, entry.meeting.title ?? '', entry.meeting.finalized_at ?? null));
+    }
+  }
+  const body: ActionItemListResponse = { items, total: items.length };
+  return HttpResponse.json(body);
 }
 
 function citationFromSegment(segmentId: string): EvidenceCitation | null {
@@ -162,6 +199,15 @@ export const handlers = [
     entry.meeting.finalized_at = now;
     const body: FinalizeMeetingResponse = { meeting_id: id, finalized_at: now };
     return HttpResponse.json(body);
+  }),
+
+  // Wave 5.1 / 5.2 — cross-meeting dashboards. The mock walks every
+  // seeded meeting's `cards` array and filters by the dashboard's type.
+  http.get('*/api/action-items', ({ request }) => {
+    return dashboardResponse(request, 'action_item');
+  }),
+  http.get('*/api/open-questions', ({ request }) => {
+    return dashboardResponse(request, 'open_question');
   }),
 
   http.post('*/api/qa/meeting', async ({ request }) => {

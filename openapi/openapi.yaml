@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 3 surface
-  version: 0.5.0
+  version: 0.7.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
     removed. There is no `state` enum, no `needs_review` flag, no
@@ -192,6 +192,95 @@ paths:
                 $ref: '#/components/schemas/MemoryCardListResponse'
         '404':
           description: Meeting not found
+
+  /api/action-items:
+    get:
+      summary: List action-item cards across all meetings in a workspace (5.1)
+      description: |
+        Cross-meeting dashboard query. Joins `memory_cards` to `meetings` so
+        rows carry the source meeting title + `finalized_at`. Filters out
+        `hidden_at IS NOT NULL` rows. Supports filtering by speaker (matches
+        `speakers_json`), `meeting_id`, and a `created_at` date range.
+      parameters:
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: speaker
+          required: false
+          schema: { type: string }
+        - in: query
+          name: meeting_id
+          required: false
+          schema: { type: string }
+        - in: query
+          name: since
+          required: false
+          schema: { type: string, format: date-time }
+        - in: query
+          name: until
+          required: false
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItemListResponse'
+
+  /api/open-questions:
+    get:
+      summary: List open-question cards across all meetings in a workspace (5.2)
+      description: |
+        Mirrors `/api/action-items` but filtered to `type=open_question`.
+        Same response shape; the frontend reuses the dashboard table
+        component.
+      parameters:
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: speaker
+          required: false
+          schema: { type: string }
+        - in: query
+          name: meeting_id
+          required: false
+          schema: { type: string }
+        - in: query
+          name: since
+          required: false
+          schema: { type: string, format: date-time }
+        - in: query
+          name: until
+          required: false
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItemListResponse'
 
   /api/meetings/{id}/finalize:
     post:
@@ -425,6 +514,48 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/MemoryCard' }
+        total: { type: integer, minimum: 0 }
+
+    ActionItemRow:
+      type: object
+      description: |
+        One row in the cross-meeting action-items / open-questions
+        dashboard. Flattens a `MemoryCard` with the source meeting's
+        title + `finalized_at` so the table component needs only one
+        fetch.
+      required:
+        [memory_card_id, meeting_id, meeting_title, type, title, content,
+         source_chunk_ids, confidence]
+      properties:
+        memory_card_id:       { type: string }
+        meeting_id:           { type: string }
+        meeting_title:        { type: string }
+        meeting_finalized_at: { type: string, format: date-time, nullable: true }
+        type:
+          type: string
+          enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        title:           { type: string }
+        content:         { type: string }
+        source_chunk_ids:
+          type: array
+          items: { type: string }
+        source_start_ms: { type: integer, nullable: true }
+        source_end_ms:   { type: integer, nullable: true }
+        speakers_json:
+          type: array
+          items: { type: string }
+          nullable: true
+        confidence:      { type: number, minimum: 0, maximum: 1 }
+        created_at:      { type: string, format: date-time, nullable: true }
+        updated_at:      { type: string, format: date-time, nullable: true }
+
+    ActionItemListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ActionItemRow' }
         total: { type: integer, minimum: 0 }
 
     AlreadyFinalized:
