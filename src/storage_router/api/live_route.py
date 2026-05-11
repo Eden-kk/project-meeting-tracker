@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # offset by counting chunks, not by inspecting WebM duration headers (those
 # are unreliable mid-stream). If the browser-side timeslice changes, update
 # this constant in lockstep.
-CHUNK_DURATION_MS = 5000
+CHUNK_DURATION_MS = 10000
 
 router = APIRouter()
 
@@ -139,7 +139,7 @@ async def receive_chunk(
 
     inserted: list[SpeakerSegmentRow] = []
     try:
-        transcript = ingest_adapter_http.transcribe_voice_file(target)
+        transcript = await ingest_adapter_http.transcribe_voice_file_async(target)
     except Exception as exc:  # noqa: BLE001 — any transport / 5xx error
         logger.warning(
             "voice-ingest failed for meeting=%s seq=%s: %s", meeting_id, seq, exc
