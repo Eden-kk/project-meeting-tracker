@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
-  title: Tracker API — Phase 3 surface
-  version: 0.5.0
+  title: Tracker API — Phase 3 + Wave 4 surface
+  version: 0.6.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
     removed. There is no `state` enum, no `needs_review` flag, no
@@ -9,6 +9,10 @@ info:
     them; quality is owned by the audit + consolidation passes which write
     `confidence`, `hidden_at`, and `superseded_by_id` (the list endpoint
     hides the latter two by default).
+
+    Wave 4 adds cross-meeting recall: Postgres FTS over speaker_segments
+    (4.1) and memory_cards (4.2) under `/api/search/*`, plus a workspace-
+    wide Hermes Q&A endpoint at `/api/qa/workspace` (4.3).
 
 servers:
   - url: http://localhost:8000
@@ -269,13 +273,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/HermesUnavailable'
 
+  /api/search/transcripts:
+    get:
+      summary: Cross-meeting keyword search over transcript segments (Wave 4.1)
+      description: |
+        Postgres FTS over `speaker_segments.text` (English config). Hits link
+        back to the originating meeting + segment. Scoped to a workspace.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 500 }
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptSearchResponse'
+        '422':
+          description: Validation error
+
   # --- Phase 2+ endpoints not yet defined in this spec --------------------
   # POST /api/live-meetings/start
   # POST /api/live-meetings/{id}/audio-frame
   # POST /api/live-meetings/{id}/stop
   # POST /api/zoom/rtms/webhook
   # GET  /api/meetings/{id}/chunks
-  # POST /api/search/meetings
   # POST /api/qa/global
   # GET  /api/hermes/live-meetings/{id}/state
   # GET  /api/hermes/meetings/{id}/recent-chunks
@@ -492,3 +528,28 @@ components:
           type: array
           items: { $ref: '#/components/schemas/QAEvidenceItem' }
         weak_evidence: { type: boolean, default: false }
+
+    TranscriptSearchHit:
+      type: object
+      additionalProperties: false
+      required: [segment_id, meeting_id, meeting_title, text]
+      properties:
+        segment_id:    { type: string }
+        meeting_id:    { type: string }
+        meeting_title: { type: string }
+        speaker:       { type: string, default: "" }
+        start_ms:      { type: integer, default: 0, minimum: 0 }
+        end_ms:        { type: integer, default: 0, minimum: 0 }
+        text:          { type: string }
+        snippet:       { type: string, default: "" }
+        rank:          { type: number, default: 0.0 }
+
+    TranscriptSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TranscriptSearchHit' }
+        total: { type: integer, minimum: 0 }

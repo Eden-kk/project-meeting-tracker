@@ -164,6 +164,49 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
+  // Wave 4.1 — cross-meeting transcript search.
+  http.get('*/api/search/transcripts', ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('q') ?? '').toLowerCase();
+    const limit = Number(url.searchParams.get('limit') ?? 20);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    if (!q) return new HttpResponse(null, { status: 422 });
+    type Hit = {
+      segment_id: string;
+      meeting_id: string;
+      meeting_title: string;
+      speaker: string;
+      start_ms: number;
+      end_ms: number;
+      text: string;
+      snippet: string;
+      rank: number;
+    };
+    const all: Hit[] = [];
+    for (const [mid, entry] of meetings.entries()) {
+      for (const seg of expectedNormalized.segments) {
+        const text = seg.text ?? '';
+        if (text.toLowerCase().includes(q)) {
+          all.push({
+            segment_id: seg.segment_id,
+            meeting_id: mid,
+            meeting_title: entry.meeting.title ?? '',
+            speaker: seg.speaker_name ?? seg.speaker_id ?? 'Unknown',
+            start_ms: seg.start_ms ?? 0,
+            end_ms: seg.end_ms ?? 0,
+            text,
+            snippet: text,
+            rank: 1.0,
+          });
+        }
+      }
+    }
+    return HttpResponse.json({
+      items: all.slice(offset, offset + limit),
+      total: all.length,
+    });
+  }),
+
   http.post('*/api/qa/meeting', async ({ request }) => {
     const input = (await request.json()) as { meeting_id: string; question: string };
     const isWeak = /\bweak\b/i.test(input.question);

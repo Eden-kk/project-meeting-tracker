@@ -105,3 +105,43 @@ export async function askHermes(input: AskHermesInput): Promise<AskHermesRespons
   const res = await api.post<AskHermesResponse>('/api/qa/meeting', input);
   return res.data;
 }
+
+// --- Wave 4 — cross-meeting search ----------------------------------------
+
+export type TranscriptSearchHit = {
+  segment_id: string;
+  meeting_id: string;
+  meeting_title: string;
+  speaker: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  snippet: string;
+  rank: number;
+};
+
+export type TranscriptSearchResponse = {
+  items: TranscriptSearchHit[];
+  total: number;
+};
+
+export type SearchTranscriptsParams = {
+  q: string;
+  workspace_id?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export async function searchTranscripts(
+  params: SearchTranscriptsParams,
+): Promise<TranscriptSearchResponse> {
+  const res = await api.get<TranscriptSearchResponse>('/api/search/transcripts', {
+    params: {
+      q: params.q,
+      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      limit: params.limit,
+      offset: params.offset,
+    },
+  });
+  return res.data;
+}
