@@ -38,7 +38,15 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Tracker storage-router", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?|https://[a-z0-9-]+\.trycloudflare\.com",
+        # Anchored alternation: each branch is fully bracketed so lookalikes
+        # like "https://evil-lhr.life" do NOT match.
+        allow_origin_regex=(
+            r"^(?:"
+            r"https?://(?:localhost|127\.0\.0\.1)(?::\d+)?"
+            r"|https://[a-z0-9-]+\.trycloudflare\.com"
+            r"|https://[a-z0-9-]+\.(?:lhr\.life|localhost\.run)"
+            r")$"
+        ),
         allow_methods=["*"],
         allow_headers=["*"],
     )
