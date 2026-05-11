@@ -1,4 +1,4 @@
-# Python (storage-router, future voice-ingest, transcript-ingest)
+# Python (storage-router, transcript-ingest, future voice-ingest)
 .venv/
 var/
 __pycache__/
@@ -12,6 +12,7 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 build/
+htmlcov/
 
 # Node / Vite (frontend)
 node_modules/

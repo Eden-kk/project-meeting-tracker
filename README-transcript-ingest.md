@@ -14,5 +14,11 @@ pip install -r requirements.txt
 ## Run tests
 
 ```bash
-pytest -xvs tests/
+pytest -xvs tests/transcript_ingest/
+```
+
+## Run service
+
+```bash
+.venv/bin/uvicorn transcript_ingest.api:app --host 127.0.0.1 --port 8011
 ```
