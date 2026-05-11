@@ -1,14 +1,23 @@
 openapi: 3.0.3
 info:
-  title: Tracker API — Phase 3 surface
-  version: 0.5.0
+  title: Tracker API — Phase 3 + Wave 4 surface
+  version: 0.6.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
     removed. There is no `state` enum, no `needs_review` flag, no
     PATCH/commit/reject routes. Cards are live as soon as the agent creates
     them; quality is owned by the audit + consolidation passes which write
-    `confidence`, `hidden_at`, and `superseded_by_id` (the list endpoint
-    hides the latter two by default).
+    `confidence`, `hidden_at`, `superseded_by_id`, and `audit_reason`.
+    The list endpoint hides agent-soft-deleted / superseded rows by default.
+
+    Wave 2 (this version) adds the agent quality endpoints:
+      * PATCH /api/memory-cards/{id}/confidence — audit pass downgrades a card
+      * POST  /api/memory-cards/{id}/hide       — audit pass soft-deletes a card
+      * POST  /api/memory-cards/{loser}/supersede-into/{winner} — consolidation merge
+
+    Wave 4 adds cross-meeting recall: Postgres FTS over speaker_segments
+    (4.1) and memory_cards (4.2) under `/api/search/*`, plus a workspace-
+    wide Hermes Q&A endpoint at `/api/qa/workspace` (4.3).
 
 servers:
   - url: http://localhost:8000
@@ -193,6 +202,94 @@ paths:
         '404':
           description: Meeting not found
 
+  /api/memory-cards/{id}/confidence:
+    patch:
+      summary: Update a card's confidence (audit pass)
+      description: |
+        Wave 2.1. Called by the meeting-card-audit skill to downgrade
+        weakly-supported cards. Sets `confidence` and (optionally) the
+        free-text `audit_reason`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardConfidencePatch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+        '422':
+          description: Validation error
+
+  /api/memory-cards/{id}/hide:
+    post:
+      summary: Soft-delete a card (audit pass)
+      description: |
+        Wave 2.1. Sets `hidden_at = NOW()` and persists the reason
+        to `audit_reason`. Idempotent; calling twice does not flip the
+        timestamp.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardHideRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+
+  /api/memory-cards/{loser_id}/supersede-into/{winner_id}:
+    post:
+      summary: Merge a near-duplicate card into a canonical winner (consolidation pass)
+      description: |
+        Wave 2.2. Validates that both cards belong to the same meeting,
+        neither is already hidden, and the winner is not itself
+        superseded. Hides the loser, points its `superseded_by_id` at
+        the winner, and appends the loser's `source_chunk_ids` to the
+        winner (deduplicated).
+      parameters:
+        - in: path
+          name: loser_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: winner_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupersedeResponse'
+        '404':
+          description: Card not found
+        '409':
+          description: Merge precondition failed
+
   /api/meetings/{id}/finalize:
     post:
       summary: Finalize a meeting via Hermes
@@ -269,14 +366,117 @@ paths:
               schema:
                 $ref: '#/components/schemas/HermesUnavailable'
 
+  /api/search/transcripts:
+    get:
+      summary: Cross-meeting keyword search over transcript segments (Wave 4.1)
+      description: |
+        Postgres FTS over `speaker_segments.text` (English config). Hits link
+        back to the originating meeting + segment. Scoped to a workspace.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 500 }
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptSearchResponse'
+        '422':
+          description: Validation error
+
+  /api/search/cards:
+    get:
+      summary: Cross-meeting keyword search over memory cards (Wave 4.2)
+      description: |
+        Postgres FTS over `memory_cards.title || ' ' || content` (English
+        config). Honors `hidden_at IS NULL` (the agent's soft-delete flag).
+        Optional `type` filter narrows to a single card type.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 500 }
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardSearchResponse'
+        '422':
+          description: Validation error
+
+  /api/qa/workspace:
+    post:
+      summary: Ask a question across every meeting in a workspace (Wave 4.3)
+      description: |
+        Hermes drives the answer via the `workspace-qa` skill, which is
+        bound to `search_workspace_transcripts` + `search_workspace_cards`.
+        The skill emits inline citations in the form
+        `[meeting:<id>:card:<id>]` or `[meeting:<id>:seg:<id>]`; this
+        route parses them out of the final answer so the SPA can render
+        deep links.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceQARequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceQAResponse'
+        '422':
+          description: Validation error
+        '503':
+          description: Hermes plugin unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HermesUnavailable'
+
   # --- Phase 2+ endpoints not yet defined in this spec --------------------
   # POST /api/live-meetings/start
   # POST /api/live-meetings/{id}/audio-frame
   # POST /api/live-meetings/{id}/stop
   # POST /api/zoom/rtms/webhook
   # GET  /api/meetings/{id}/chunks
-  # POST /api/search/meetings
-  # POST /api/qa/global
   # GET  /api/hermes/live-meetings/{id}/state
   # GET  /api/hermes/meetings/{id}/recent-chunks
   # POST /api/hermes/meetings/{id}/pattern
@@ -389,6 +589,7 @@ components:
         confidence:       { type: number, minimum: 0, maximum: 1 }
         hidden_at:        { type: string, format: date-time, nullable: true, description: "Agent-driven soft delete; list endpoints hide these by default." }
         superseded_by_id: { type: string, nullable: true, description: "Canonical winner card from the agent consolidation pass." }
+        audit_reason:     { type: string, nullable: true, description: "Rationale recorded by the audit pass when a card is downgraded or hidden." }
         created_by_agent: { type: string, nullable: true }
         created_at:       { type: string, format: date-time, nullable: true }
         updated_at:       { type: string, format: date-time, nullable: true }
@@ -448,6 +649,31 @@ components:
             code:    { type: string, enum: [hermes_unavailable] }
             message: { type: string }
 
+    MemoryCardConfidencePatch:
+      type: object
+      additionalProperties: false
+      required: [confidence]
+      properties:
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        reason:     { type: string, nullable: true, maxLength: 2000 }
+
+    MemoryCardHideRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: { type: string, nullable: true, maxLength: 2000 }
+
+    SupersedeResponse:
+      type: object
+      additionalProperties: false
+      required: [loser_id, winner_id, winner_source_chunk_ids]
+      properties:
+        loser_id:                { type: string }
+        winner_id:               { type: string }
+        winner_source_chunk_ids:
+          type: array
+          items: { type: string }
+
     FinalizeResponse:
       type: object
       required: [meeting_id, finalized_at, cards_created, summary]
@@ -491,4 +717,89 @@ components:
         citations:
           type: array
           items: { $ref: '#/components/schemas/QAEvidenceItem' }
+        weak_evidence: { type: boolean, default: false }
+
+    TranscriptSearchHit:
+      type: object
+      additionalProperties: false
+      required: [segment_id, meeting_id, meeting_title, text]
+      properties:
+        segment_id:    { type: string }
+        meeting_id:    { type: string }
+        meeting_title: { type: string }
+        speaker:       { type: string, default: "" }
+        start_ms:      { type: integer, default: 0, minimum: 0 }
+        end_ms:        { type: integer, default: 0, minimum: 0 }
+        text:          { type: string }
+        snippet:       { type: string, default: "" }
+        rank:          { type: number, default: 0.0 }
+
+    TranscriptSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TranscriptSearchHit' }
+        total: { type: integer, minimum: 0 }
+
+    CardSearchHit:
+      type: object
+      additionalProperties: false
+      required: [memory_card_id, meeting_id, meeting_title, type, title, content]
+      properties:
+        memory_card_id:  { type: string }
+        meeting_id:      { type: string }
+        meeting_title:   { type: string }
+        type:
+          type: string
+          enum: [decision, action_item, pain_point, quote, requirement, risk, open_question, technical_detail]
+        title:           { type: string }
+        content:         { type: string }
+        confidence:      { type: number, default: 0.0 }
+        source_start_ms: { type: integer, nullable: true }
+        source_end_ms:   { type: integer, nullable: true }
+        snippet:         { type: string, default: "" }
+        rank:            { type: number, default: 0.0 }
+
+    CardSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CardSearchHit' }
+        total: { type: integer, minimum: 0 }
+
+    WorkspaceQARequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, question]
+      properties:
+        workspace_id: { type: string, minLength: 1 }
+        question:     { type: string, minLength: 1, maxLength: 4000 }
+
+    WorkspaceQACitation:
+      type: object
+      additionalProperties: false
+      required: [meeting_id]
+      properties:
+        meeting_id:     { type: string }
+        meeting_title:  { type: string, default: "" }
+        memory_card_id: { type: string, nullable: true }
+        segment_id:     { type: string, nullable: true }
+        snippet:        { type: string, default: "" }
+
+    WorkspaceQAResponse:
+      type: object
+      additionalProperties: false
+      required: [answer, citations, weak_evidence]
+      properties:
+        answer:        { type: string }
+        confidence:    { type: number, default: 0.6, minimum: 0.0, maximum: 1.0 }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/WorkspaceQACitation' }
         weak_evidence: { type: boolean, default: false }

@@ -75,8 +75,67 @@ class StorageRouterClient:
     def create_memory_card(self, payload: dict) -> dict:
         return self._request("POST", "/api/memory-cards", json=payload)
 
+    def search_workspace_transcripts(
+        self,
+        workspace_id: str,
+        q: str,
+        *,
+        limit: int = 10,
+    ) -> dict:
+        """Wave 4.3: cross-meeting transcript FTS, scoped to a workspace."""
+        return self._request(
+            "GET",
+            "/api/search/transcripts",
+            params={"q": q, "workspace_id": workspace_id, "limit": limit},
+        )
+
+    def search_workspace_cards(
+        self,
+        workspace_id: str,
+        q: str,
+        *,
+        type: Optional[str] = None,
+        limit: int = 10,
+    ) -> dict:
+        """Wave 4.3: cross-meeting card FTS, scoped to a workspace."""
+        params: dict[str, str | int] = {
+            "q": q,
+            "workspace_id": workspace_id,
+            "limit": limit,
+        }
+        if type is not None:
+            params["type"] = type
+        return self._request("GET", "/api/search/cards", params=params)
+
     def finalize_meeting(self, meeting_id: str) -> dict:
         return self._request("POST", f"/api/meetings/{meeting_id}/finalize")
+
+    def update_card_confidence(
+        self,
+        card_id: str,
+        confidence: float,
+        reason: str | None = None,
+    ) -> dict:
+        payload: dict = {"confidence": confidence}
+        if reason is not None:
+            payload["reason"] = reason
+        return self._request(
+            "PATCH", f"/api/memory-cards/{card_id}/confidence", json=payload
+        )
+
+    def hide_card(self, card_id: str, reason: str | None = None) -> dict:
+        payload: dict = {}
+        if reason is not None:
+            payload["reason"] = reason
+        return self._request(
+            "POST", f"/api/memory-cards/{card_id}/hide", json=payload
+        )
+
+    def supersede_card(self, loser_id: str, winner_id: str) -> dict:
+        return self._request(
+            "POST",
+            f"/api/memory-cards/{loser_id}/supersede-into/{winner_id}",
+        )
 
     # --- internals ---
 

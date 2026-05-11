@@ -166,6 +166,7 @@ class MemoryCardRow(Base):
     superseded_by_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("memory_cards.id", ondelete="SET NULL")
     )
+    audit_reason: Mapped[str | None] = mapped_column(Text)
     created_by_agent: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -62,6 +62,41 @@ def run_meeting_qa(meeting_id: str, question: str) -> dict:
     return fn(meeting_id=meeting_id, question=question)
 
 
+def run_followup_draft(
+    meeting_id: str,
+    recipient: str | None = None,
+    tone: str | None = None,
+) -> dict:
+    """Wave 5.3 — forward to ``hermes_plugin.followup_draft``.
+
+    Validation of ``recipient`` (sanitized, max 100 chars) and ``tone``
+    happens in the route layer; this shim is intentionally thin so the
+    plugin call can be mocked at the same boundary the other run_*
+    helpers use.
+    """
+    mod = _import_or_503()
+    fn = getattr(mod, "followup_draft", None)
+    if fn is None:
+        raise HermesUnavailable("hermes_plugin.followup_draft not exported")
+    return fn(meeting_id=meeting_id, recipient=recipient, tone=tone)
+
+
+def run_workspace_qa(workspace_id: str, question: str) -> dict:
+    """Wave 4.3: workspace-wide Hermes QA.
+
+    Forwards to ``hermes_plugin.workspace_qa`` which is bound to the two
+    cross-meeting search tools (`search_workspace_transcripts` and
+    `search_workspace_cards`). Citations come back as
+    ``[meeting:<id>:card:<id>]`` or ``[meeting:<id>:seg:<id>]`` so the
+    SPA can deep-link to the source meeting.
+    """
+    mod = _import_or_503()
+    fn = getattr(mod, "workspace_qa", None)
+    if fn is None:
+        raise HermesUnavailable("hermes_plugin.workspace_qa not exported")
+    return fn(workspace_id=workspace_id, question=question)
+
+
 def auto_finalize_meeting(meeting_id: str) -> None:
     """Background-task entry: drive ``ready → finalizing → finalized``.
 

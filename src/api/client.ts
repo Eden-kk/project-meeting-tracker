@@ -2,11 +2,15 @@ import axios from 'axios';
 import type { components } from './types';
 import { DEV_WORKSPACE_ID } from '../lib/constants';
 import type {
+  ActionItemListResponse,
   AskHermesInput,
   AskHermesResponse,
   CreateMemoryCardInput,
   EvidenceCitation,
   FinalizeMeetingResponse,
+  FollowupDraftInput,
+  FollowupDraftResponse,
+  ListActionItemsParams,
   MemoryCard,
   MemoryCardListResponse,
   MemoryCardType,
@@ -86,7 +90,13 @@ export async function listMeetingCards(
     `/api/meetings/${meetingId}/memory-cards`,
     { params: filters },
   );
-  return res.data;
+  // The backend serialises the speakers field as `speakers_json`; normalise
+  // it to `speakers` so components can rely on the MemoryCard type shape.
+  const items = res.data.items.map((card: MemoryCard & { speakers_json?: string[] | null }) => ({
+    ...card,
+    speakers: card.speakers ?? card.speakers_json ?? [],
+  }));
+  return { ...res.data, items };
 }
 
 export async function createMemoryCard(input: CreateMemoryCardInput): Promise<MemoryCard> {
@@ -175,6 +185,147 @@ export async function listLiveSegments(
   const res = await api.get<LiveSegmentsResponse>(
     `/api/live-meetings/${meetingId}/segments`,
     { params: sinceId ? { since_id: sinceId } : undefined },
+  );
+  return res.data;
+}
+
+export type CardSearchHit = {
+  memory_card_id: string;
+  meeting_id: string;
+  meeting_title: string;
+  type: MemoryCardType;
+  title: string;
+  content: string;
+  confidence: number;
+  source_start_ms: number | null;
+  source_end_ms: number | null;
+  snippet: string;
+  rank: number;
+};
+
+export type CardSearchResponse = {
+  items: CardSearchHit[];
+  total: number;
+};
+
+export type SearchCardsParams = {
+  q: string;
+  workspace_id?: string;
+  type?: MemoryCardType;
+  limit?: number;
+  offset?: number;
+};
+
+export type WorkspaceQACitation = {
+  meeting_id: string;
+  meeting_title: string;
+  memory_card_id: string | null;
+  segment_id: string | null;
+  snippet: string;
+};
+
+export type WorkspaceQAResponse = {
+  answer: string;
+  confidence: number;
+  citations: WorkspaceQACitation[];
+  weak_evidence: boolean;
+};
+
+export type AskWorkspaceInput = {
+  question: string;
+  workspace_id?: string;
+};
+
+export async function askWorkspace(
+  input: AskWorkspaceInput,
+): Promise<WorkspaceQAResponse> {
+  const res = await api.post<WorkspaceQAResponse>('/api/qa/workspace', {
+    workspace_id: input.workspace_id ?? DEV_WORKSPACE_ID,
+    question: input.question,
+  });
+  return res.data;
+}
+
+export async function searchCards(
+  params: SearchCardsParams,
+): Promise<CardSearchResponse> {
+  const res = await api.get<CardSearchResponse>('/api/search/cards', {
+    params: {
+      q: params.q,
+      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      type: params.type,
+      limit: params.limit,
+      offset: params.offset,
+    },
+  });
+  return res.data;
+}
+
+// --- Wave 4.2 — transcript search -------------------------------------------
+
+export type TranscriptSearchHit = {
+  segment_id: string;
+  meeting_id: string;
+  meeting_title: string;
+  speaker: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  snippet: string;
+  rank: number;
+};
+
+export type TranscriptSearchResponse = {
+  items: TranscriptSearchHit[];
+  total: number;
+};
+
+export type SearchTranscriptsParams = {
+  q: string;
+  workspace_id?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export async function searchTranscripts(
+  params: SearchTranscriptsParams,
+): Promise<TranscriptSearchResponse> {
+  const res = await api.get<TranscriptSearchResponse>('/api/search/transcripts', {
+    params: {
+      q: params.q,
+      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      limit: params.limit,
+      offset: params.offset,
+    },
+  });
+  return res.data;
+}
+
+// --- Wave 5.1/5.2 — action items / open questions dashboards ----------------
+
+export async function listActionItems(
+  params: ListActionItemsParams,
+): Promise<ActionItemListResponse> {
+  const res = await api.get<ActionItemListResponse>('/api/action-items', { params });
+  return res.data;
+}
+
+export async function listOpenQuestions(
+  params: ListActionItemsParams,
+): Promise<ActionItemListResponse> {
+  const res = await api.get<ActionItemListResponse>('/api/open-questions', { params });
+  return res.data;
+}
+
+// --- Wave 5.3 — follow-up draft ---------------------------------------------
+
+export async function draftFollowup(
+  input: FollowupDraftInput,
+): Promise<FollowupDraftResponse> {
+  const { meeting_id, ...body } = input;
+  const res = await api.post<FollowupDraftResponse>(
+    `/api/meetings/${meeting_id}/followup-draft`,
+    body,
   );
   return res.data;
 }

@@ -68,3 +68,56 @@ export type AskHermesResponse = {
   citations: EvidenceCitation[];
   weak_evidence: boolean;
 };
+
+/** Wave 5.1 / 5.2 — cross-meeting dashboard row.
+ *
+ * The backend flattens `memory_cards` + the source meeting's `title` and
+ * `finalized_at` into one shape so the dashboard table needs only a
+ * single round-trip.
+ */
+export type ActionItemRow = {
+  memory_card_id: string;
+  meeting_id: string;
+  meeting_title: string;
+  meeting_finalized_at: string | null;
+  type: MemoryCardType;
+  title: string;
+  content: string;
+  source_chunk_ids: string[];
+  source_start_ms?: number | null;
+  source_end_ms?: number | null;
+  speakers_json?: string[] | null;
+  confidence: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type ActionItemListResponse = {
+  items: ActionItemRow[];
+  total: number;
+};
+
+export type ListActionItemsParams = {
+  workspace_id: string;
+  speaker?: string;
+  meeting_id?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+};
+
+/** Wave 5.3 — tone options for the follow-up draft endpoint. */
+export type FollowupDraftTone = 'neutral' | 'decisive' | 'warm';
+
+export type FollowupDraftInput = {
+  meeting_id: string;
+  recipient?: string;
+  tone?: FollowupDraftTone;
+};
+
+export type FollowupDraftResponse = {
+  meeting_id: string;
+  markdown: string;
+  cards_referenced: string[];
+};

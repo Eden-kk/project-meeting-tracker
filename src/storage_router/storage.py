@@ -1,6 +1,8 @@
 """Transactional repository functions over the Phase-1 ORM."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, select
 
 from storage_router.ids import new_id
@@ -234,3 +236,341 @@ def list_meeting_cards(
 
 def get_memory_card(session, card_id: str) -> MemoryCardRow | None:
     return session.get(MemoryCardRow, card_id)
+
+
+def update_card_confidence(
+    session,
+    *,
+    card_id: str,
+    confidence: float,
+    reason: str | None = None,
+) -> MemoryCardRow:
+    """Patch a card's confidence (and optional audit_reason).
+
+    Used by the Wave 2.1 audit pass to downgrade weak cards without
+    hiding them. Raises LookupError if the card does not exist.
+    """
+    row = session.get(MemoryCardRow, card_id)
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError("confidence must be in [0, 1]")
+    row.confidence = confidence
+    if reason is not None:
+        row.audit_reason = reason
+    session.flush()
+    return row
+
+
+def hide_card(
+    session,
+    *,
+    card_id: str,
+    reason: str | None = None,
+) -> MemoryCardRow:
+    """Soft-delete a card by setting hidden_at = NOW() + audit_reason.
+
+    Idempotent: hiding an already-hidden card returns the row untouched.
+    Raises LookupError if the card does not exist.
+    """
+    from datetime import datetime, timezone
+
+    row = session.get(MemoryCardRow, card_id)
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if row.hidden_at is None:
+        row.hidden_at = datetime.now(timezone.utc)
+    if reason is not None:
+        row.audit_reason = reason
+    session.flush()
+    return row
+
+
+def supersede_cards(
+    session,
+    *,
+    loser_id: str,
+    winner_id: str,
+) -> tuple[MemoryCardRow, MemoryCardRow]:
+    """Consolidate `loser` into `winner` (Wave 2.2).
+
+    Validates:
+    - both cards exist and belong to the same meeting;
+    - neither card is already hidden;
+    - loser is not already superseded;
+    - loser != winner.
+
+    Effects:
+    - loser.superseded_by_id = winner_id
+    - loser.hidden_at = NOW() (idempotent if already set)
+    - winner.source_chunk_ids gains loser.source_chunk_ids (dedup'd, order preserved)
+
+    Idempotent: calling twice does not double-append source ids and does
+    not flip the loser's hidden_at timestamp.
+    """
+    from datetime import datetime, timezone
+
+    if loser_id == winner_id:
+        raise ValueError("loser and winner must differ")
+    loser = session.get(MemoryCardRow, loser_id)
+    if loser is None:
+        raise LookupError(f"memory card {loser_id} not found")
+    winner = session.get(MemoryCardRow, winner_id)
+    if winner is None:
+        raise LookupError(f"memory card {winner_id} not found")
+    if loser.meeting_id != winner.meeting_id:
+        raise ValueError("cards must belong to the same meeting")
+    if winner.hidden_at is not None:
+        raise ValueError("winner card is hidden")
+    if winner.superseded_by_id is not None:
+        raise ValueError("winner card is itself already superseded")
+
+    # Idempotent guard: if loser is already pointed at this winner, just
+    # ensure the merge state is consistent and return.
+    if loser.superseded_by_id == winner_id:
+        # Hidden_at should already be set from the first call.
+        if loser.hidden_at is None:
+            loser.hidden_at = datetime.now(timezone.utc)
+        session.flush()
+        return loser, winner
+
+    if loser.superseded_by_id is not None:
+        raise ValueError("loser card is already superseded by a different card")
+
+    # Append loser's source chunks to the winner, deduplicating.
+    winner_ids = list(winner.source_chunk_ids or [])
+    seen = set(winner_ids)
+    for cid in loser.source_chunk_ids or []:
+        if cid not in seen:
+            winner_ids.append(cid)
+            seen.add(cid)
+    winner.source_chunk_ids = winner_ids
+
+    loser.superseded_by_id = winner_id
+    if loser.hidden_at is None:
+        loser.hidden_at = datetime.now(timezone.utc)
+    session.flush()
+    return loser, winner
+
+
+def list_action_items(
+    session,
+    *,
+    workspace_id: str,
+    type: str = "action_item",
+    speaker: str | None = None,
+    meeting_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Workspace-wide cross-meeting list of visible memory cards of a single type.
+
+    Joins `memory_cards → meetings → conversation_artifacts` so the caller
+    can filter by `workspace_id` and surface the source meeting's title +
+    `finalized_at` next to each row.
+
+    Default `type="action_item"` powers /api/action-items; passing
+    `type="open_question"` reuses the same query for the open-questions
+    dashboard. `hidden_at IS NOT NULL` rows are always excluded.
+
+    Returns (items, total) where each item is a flat dict ready for the
+    Pydantic response model — joins are flattened here rather than in the
+    route so call-sites do not own SQL.
+    """
+    base = (
+        select(
+            MemoryCardRow,
+            MeetingRow.title.label("meeting_title"),
+            MeetingRow.finalized_at.label("meeting_finalized_at"),
+        )
+        .join(MeetingRow, MemoryCardRow.meeting_id == MeetingRow.id)
+        .join(
+            ConversationArtifactRow,
+            MeetingRow.artifact_id == ConversationArtifactRow.id,
+        )
+        .where(ConversationArtifactRow.workspace_id == workspace_id)
+        .where(MemoryCardRow.type == type)
+        .where(MemoryCardRow.hidden_at.is_(None))
+    )
+    if speaker is not None:
+        # speakers_json is a JSONB array of strings; case-insensitive
+        # contains check ('?' = top-level key) handles the common case.
+        base = base.where(MemoryCardRow.speakers_json.op("?")(speaker))
+    if meeting_id is not None:
+        base = base.where(MemoryCardRow.meeting_id == meeting_id)
+    if since is not None:
+        base = base.where(MemoryCardRow.created_at >= since)
+    if until is not None:
+        base = base.where(MemoryCardRow.created_at <= until)
+
+    total = session.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one()
+
+    rows = session.execute(
+        base.order_by(MemoryCardRow.created_at.desc(), MemoryCardRow.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+
+    items: list[dict] = []
+    for row in rows:
+        card = row[0]
+        items.append(
+            {
+                "memory_card_id": card.id,
+                "meeting_id": card.meeting_id,
+                "meeting_title": row.meeting_title or "",
+                "meeting_finalized_at": row.meeting_finalized_at,
+                "type": card.type,
+                "title": card.title,
+                "content": card.content,
+                "source_chunk_ids": list(card.source_chunk_ids),
+                "source_start_ms": card.source_start_ms,
+                "source_end_ms": card.source_end_ms,
+                "speakers_json": (
+                    list(card.speakers_json) if card.speakers_json is not None else None
+                ),
+                "confidence": card.confidence,
+                "created_at": card.created_at,
+                "updated_at": card.updated_at,
+            }
+        )
+    return items, int(total)
+
+def search_segments_fts(
+    session,
+    *,
+    workspace_id: str,
+    query: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Postgres FTS over speaker_segments.search_tsv, scoped to a workspace.
+
+    Returns (rows, total). Each row is a dict with: segment_id, meeting_id,
+    meeting_title, speaker_name, start_ms, end_ms, text, rank, snippet.
+    Empty query returns (empty, 0) without touching the DB.
+    """
+    from sqlalchemy import text
+
+    q = (query or "").strip()
+    if not q:
+        return [], 0
+
+    sql_count = text(
+        """
+        SELECT COUNT(*)
+          FROM speaker_segments s
+          JOIN meetings m ON m.id = s.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND s.search_tsv @@ websearch_to_tsquery('english', :q)
+        """
+    )
+    total = session.execute(sql_count, {"ws": workspace_id, "q": q}).scalar_one()
+
+    sql_rows = text(
+        """
+        SELECT s.id              AS segment_id,
+               s.meeting_id      AS meeting_id,
+               m.title           AS meeting_title,
+               s.speaker_name    AS speaker_name,
+               s.speaker_id      AS speaker_id,
+               s.start_ms        AS start_ms,
+               s.end_ms          AS end_ms,
+               s.text            AS text,
+               ts_rank_cd(s.search_tsv, websearch_to_tsquery('english', :q)) AS rank,
+               ts_headline(
+                 'english', s.text, websearch_to_tsquery('english', :q),
+                 'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
+               ) AS snippet
+          FROM speaker_segments s
+          JOIN meetings m ON m.id = s.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND s.search_tsv @@ websearch_to_tsquery('english', :q)
+         ORDER BY rank DESC, s.start_ms NULLS LAST, s.id
+         LIMIT :lim OFFSET :off
+        """
+    )
+    rows = session.execute(
+        sql_rows, {"ws": workspace_id, "q": q, "lim": limit, "off": offset}
+    ).mappings().all()
+    return [dict(r) for r in rows], int(total)
+
+
+def search_cards_fts(
+    session,
+    *,
+    workspace_id: str,
+    query: str,
+    type: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Postgres FTS over memory_cards.search_tsv (title || ' ' || content),
+    scoped to a workspace. Honors `hidden_at IS NULL`.
+
+    Returns (rows, total). Each row dict has: memory_card_id, meeting_id,
+    meeting_title, type, title, content, confidence, source_start_ms,
+    source_end_ms, rank, snippet.
+    """
+    from sqlalchemy import text
+
+    q = (query or "").strip()
+    if not q:
+        return [], 0
+
+    type_clause = "AND c.type = :type " if type else ""
+    params: dict = {"ws": workspace_id, "q": q, "lim": limit, "off": offset}
+    if type:
+        params["type"] = type
+
+    sql_count = text(
+        f"""
+        SELECT COUNT(*)
+          FROM memory_cards c
+          JOIN meetings m ON m.id = c.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND c.hidden_at IS NULL
+           {type_clause}
+           AND c.search_tsv @@ websearch_to_tsquery('english', :q)
+        """
+    )
+    total = session.execute(sql_count, params).scalar_one()
+
+    sql_rows = text(
+        f"""
+        SELECT c.id              AS memory_card_id,
+               c.meeting_id      AS meeting_id,
+               m.title           AS meeting_title,
+               c.type            AS type,
+               c.title           AS title,
+               c.content         AS content,
+               c.confidence      AS confidence,
+               c.source_start_ms AS source_start_ms,
+               c.source_end_ms   AS source_end_ms,
+               ts_rank_cd(c.search_tsv, websearch_to_tsquery('english', :q)) AS rank,
+               ts_headline(
+                 'english',
+                 coalesce(c.title,'') || ' ' || coalesce(c.content,''),
+                 websearch_to_tsquery('english', :q),
+                 'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
+               ) AS snippet
+          FROM memory_cards c
+          JOIN meetings m ON m.id = c.meeting_id
+          JOIN conversation_artifacts a ON a.id = m.artifact_id
+         WHERE a.workspace_id = :ws
+           AND c.hidden_at IS NULL
+           {type_clause}
+           AND c.search_tsv @@ websearch_to_tsquery('english', :q)
+         ORDER BY rank DESC, c.created_at DESC, c.id
+         LIMIT :lim OFFSET :off
+        """
+    )
+    rows = session.execute(sql_rows, params).mappings().all()
+    return [dict(r) for r in rows], int(total)

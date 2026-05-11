@@ -6,6 +6,8 @@ import type {
   NormalizedTranscript,
 } from '../api/client';
 import type {
+  ActionItemListResponse,
+  ActionItemRow,
   AskHermesResponse,
   EvidenceCitation,
   FinalizeMeetingResponse,
@@ -39,6 +41,41 @@ function currentStatus(entry: Entry): Meeting['status'] {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function cardToRow(card: MemoryCard, meetingTitle: string, finalizedAt: string | null): ActionItemRow {
+  return {
+    memory_card_id: card.memory_card_id,
+    meeting_id: card.meeting_id,
+    meeting_title: meetingTitle,
+    meeting_finalized_at: finalizedAt,
+    type: card.type,
+    title: card.title,
+    content: card.content,
+    source_chunk_ids: card.source_chunk_ids ?? [],
+    speakers_json: card.speakers ?? null,
+    confidence: 0.85,
+    created_at: card.created_at,
+    updated_at: card.updated_at,
+  };
+}
+
+function dashboardResponse(request: Request, type: MemoryCardType): Response {
+  const url = new URL(request.url);
+  const speaker = url.searchParams.get('speaker');
+  const meetingIdFilter = url.searchParams.get('meeting_id');
+  const items: ActionItemRow[] = [];
+  for (const [, entry] of meetings.entries()) {
+    if (meetingIdFilter && entry.meeting.meeting_id !== meetingIdFilter) continue;
+    for (const c of entry.cards) {
+      if (c.type !== type) continue;
+      if (c.hidden_at !== null) continue;
+      if (speaker && !(c.speakers ?? []).includes(speaker)) continue;
+      items.push(cardToRow(c, entry.meeting.title ?? '', entry.meeting.finalized_at ?? null));
+    }
+  }
+  const body: ActionItemListResponse = { items, total: items.length };
+  return HttpResponse.json(body);
 }
 
 function citationFromSegment(segmentId: string): EvidenceCitation | null {
@@ -162,6 +199,109 @@ export const handlers = [
     entry.meeting.finalized_at = now;
     const body: FinalizeMeetingResponse = { meeting_id: id, finalized_at: now };
     return HttpResponse.json(body);
+  }),
+
+  // Wave 5.1 / 5.2 — cross-meeting dashboards. The mock walks every
+  // seeded meeting's `cards` array and filters by the dashboard's type.
+  http.get('*/api/action-items', ({ request }) => {
+    return dashboardResponse(request, 'action_item');
+  }),
+  http.get('*/api/open-questions', ({ request }) => {
+    return dashboardResponse(request, 'open_question');
+  }),
+
+  // Wave 4.2 — cross-meeting card search.
+  http.get('*/api/search/cards', ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get('q') ?? '').toLowerCase();
+    const typeFilter = url.searchParams.get('type') as MemoryCardType | null;
+    const limit = Number(url.searchParams.get('limit') ?? 20);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    if (!q) return new HttpResponse(null, { status: 422 });
+    type Hit = {
+      memory_card_id: string;
+      meeting_id: string;
+      meeting_title: string;
+      type: MemoryCardType;
+      title: string;
+      content: string;
+      confidence: number;
+      source_start_ms: number | null;
+      source_end_ms: number | null;
+      snippet: string;
+      rank: number;
+    };
+    const all: Hit[] = [];
+    for (const [mid, entry] of meetings.entries()) {
+      for (const card of entry.cards) {
+        if (card.hidden_at) continue;
+        if (typeFilter && card.type !== typeFilter) continue;
+        const haystack = `${card.title} ${card.content}`.toLowerCase();
+        if (haystack.includes(q)) {
+          all.push({
+            memory_card_id: card.memory_card_id,
+            meeting_id: mid,
+            meeting_title: entry.meeting.title ?? '',
+            type: card.type,
+            title: card.title,
+            content: card.content,
+            confidence: 0.8,
+            source_start_ms: null,
+            source_end_ms: null,
+            snippet: card.content,
+            rank: 1.0,
+          });
+        }
+      }
+    }
+    return HttpResponse.json({
+      items: all.slice(offset, offset + limit),
+      total: all.length,
+    });
+  }),
+
+  // Wave 4.3 — workspace-wide Ask Hermes.
+  http.post('*/api/qa/workspace', async ({ request }) => {
+    const input = (await request.json()) as {
+      workspace_id: string;
+      question: string;
+    };
+    if (!input.question || input.question.length === 0) {
+      return new HttpResponse(null, { status: 422 });
+    }
+    // Build a canned answer that references the first card of the
+    // first known meeting so the SPA's deep-link UX is exercisable in
+    // dev mode without a backend.
+    type Cit = {
+      meeting_id: string;
+      meeting_title: string;
+      memory_card_id: string | null;
+      segment_id: string | null;
+      snippet: string;
+    };
+    const citations: Cit[] = [];
+    let answerCore = `In response to "${input.question}", here is what I found across the workspace.`;
+    for (const [mid, entry] of meetings.entries()) {
+      const card = entry.cards.find((c) => !c.hidden_at);
+      if (card) {
+        citations.push({
+          meeting_id: mid,
+          meeting_title: entry.meeting.title ?? '',
+          memory_card_id: card.memory_card_id,
+          segment_id: null,
+          snippet: card.title,
+        });
+        answerCore += ` See [meeting:${mid}:card:${card.memory_card_id}].`;
+      }
+      if (citations.length >= 3) break;
+    }
+    const weak = citations.length === 0;
+    return HttpResponse.json({
+      answer: weak ? 'I could not find anything relevant.' : answerCore,
+      confidence: weak ? 0.3 : 0.75,
+      citations,
+      weak_evidence: weak,
+    });
   }),
 
   http.post('*/api/qa/meeting', async ({ request }) => {

@@ -11,11 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from storage_router.api import (
+    action_items_route,
+    followup_route,
     import_route,
     live_route,
     meetings_route,
     memory_cards_route,
     qa_route,
+    search_route,
 )
 from storage_router.blob import LocalFsBlobStore
 from storage_router.config import settings
@@ -41,7 +44,7 @@ def _ensure_dev_seed() -> None:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Tracker storage-router", version="0.3.0")
+    app = FastAPI(title="Tracker storage-router", version="0.7.0")
     app.add_middleware(
         CORSMiddleware,
         # Anchored alternation: each branch is fully bracketed so lookalikes
@@ -67,6 +70,9 @@ def create_app() -> FastAPI:
     app.include_router(meetings_route.router)
     app.include_router(memory_cards_route.router)
     app.include_router(qa_route.router)
+    app.include_router(action_items_route.router)
+    app.include_router(followup_route.router)
+    app.include_router(search_route.router)
 
     # Optional: serve a built frontend SPA out of the same origin.
     # Set FRONTEND_DIST=/path/to/frontend/dist when launching to enable.

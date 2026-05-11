@@ -45,6 +45,33 @@ class MemoryCardListResponse(BaseModel):
     total: int = Field(..., ge=0)
 
 
+class MemoryCardConfidencePatch(BaseModel):
+    """Body for PATCH /api/memory-cards/{id}/confidence (audit pass)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: str | None = Field(None, max_length=2000)
+
+
+class MemoryCardHideRequest(BaseModel):
+    """Body for POST /api/memory-cards/{id}/hide (audit pass)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(None, max_length=2000)
+
+
+class SupersedeResponse(BaseModel):
+    """Response body for POST /api/memory-cards/{loser}/supersede-into/{winner}."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    loser_id: str
+    winner_id: str
+    winner_source_chunk_ids: list[str]
+
+
 class FinalizeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     meeting_id: str
@@ -80,12 +107,50 @@ class QAResponse(BaseModel):
     weak_evidence: bool = False
 
 
+# Wave 4.3 — workspace-wide QA shapes.
+
+
+class WorkspaceQARequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=4000)
+
+
+class WorkspaceQACitation(BaseModel):
+    """Cross-meeting citation. One of `memory_card_id` or `segment_id` is
+    populated depending on whether the answer came from a card or a
+    raw transcript segment. The frontend uses the populated id +
+    `meeting_id` to build a deep link.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    meeting_id: str
+    meeting_title: str = ""
+    memory_card_id: str | None = None
+    segment_id: str | None = None
+    snippet: str = ""
+
+
+class WorkspaceQAResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer: str
+    confidence: float = Field(0.6, ge=0.0, le=1.0)
+    citations: list[WorkspaceQACitation] = Field(default_factory=list)
+    weak_evidence: bool = False
+
+
 __all__ = [
     "FinalizeResponse",
+    "MemoryCardConfidencePatch",
     "MemoryCardCreate",
+    "MemoryCardHideRequest",
     "MemoryCardListResponse",
     "MemoryCardOut",
     "QAEvidenceItem",
     "QARequest",
     "QAResponse",
+    "SupersedeResponse",
+    "WorkspaceQACitation",
+    "WorkspaceQARequest",
+    "WorkspaceQAResponse",
 ]

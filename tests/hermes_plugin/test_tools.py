@@ -162,3 +162,128 @@ def test_storage_5xx_wrapped_as_tool_error_503(storage_client):
         TOOL_REGISTRY["finalize_meeting_memory"]({"meeting_id": "m_1"}, client)
     assert exc.value.status_code == 503
     assert exc.value.code == "storage_unavailable"
+
+
+# --- Wave 2.1 audit-pass tools --------------------------------------------
+
+
+def test_update_card_confidence_happy_path(storage_client):
+    seen: list[tuple[httpx.Request, dict]] = []
+
+    def handler(req):
+        body = json.loads(req.content.decode())
+        seen.append((req, body))
+        # Echo back a valid MemoryCard payload with the new confidence.
+        return httpx.Response(
+            200,
+            json={**_VALID_CARD, "confidence": body["confidence"], "audit_reason": body.get("reason")},
+        )
+
+    client = storage_client(handler)
+    out = TOOL_REGISTRY["update_card_confidence"](
+        {"card_id": "mc_1", "confidence": 0.4, "reason": "speaker only speculated"},
+        client,
+    )
+    assert out["confidence"] == 0.4
+    assert seen[0][0].method == "PATCH"
+    assert seen[0][0].url.path == "/api/memory-cards/mc_1/confidence"
+    assert seen[0][1] == {"confidence": 0.4, "reason": "speaker only speculated"}
+
+
+def test_update_card_confidence_requires_reason(storage_client):
+    client = storage_client(lambda req: httpx.Response(500))
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["update_card_confidence"]({"card_id": "mc_1", "confidence": 0.5}, client)
+    assert exc.value.status_code == 422
+
+
+def test_update_card_confidence_404_propagates(storage_client):
+    def handler(req):
+        return httpx.Response(404, json={"code": "not_found", "message": "card gone"})
+
+    client = storage_client(handler)
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["update_card_confidence"](
+            {"card_id": "mc_x", "confidence": 0.5, "reason": "x"}, client
+        )
+    assert exc.value.status_code == 404
+
+
+def test_hide_card_happy_path(storage_client):
+    seen: list[tuple[httpx.Request, dict]] = []
+
+    def handler(req):
+        body = json.loads(req.content.decode()) if req.content else {}
+        seen.append((req, body))
+        return httpx.Response(
+            200,
+            json={**_VALID_CARD, "hidden_at": "2026-05-11T12:00:00Z", "audit_reason": body.get("reason")},
+        )
+
+    client = storage_client(handler)
+    out = TOOL_REGISTRY["hide_card"](
+        {"card_id": "mc_1", "reason": "no supporting evidence"}, client
+    )
+    assert out["hidden_at"] is not None
+    assert seen[0][0].method == "POST"
+    assert seen[0][0].url.path == "/api/memory-cards/mc_1/hide"
+    assert seen[0][1] == {"reason": "no supporting evidence"}
+
+
+def test_hide_card_requires_reason(storage_client):
+    client = storage_client(lambda req: httpx.Response(500))
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["hide_card"]({"card_id": "mc_1"}, client)
+    assert exc.value.status_code == 422
+
+
+# --- Wave 2.2 consolidation-pass tool -------------------------------------
+
+
+def test_supersede_card_happy_path(storage_client):
+    seen: list[httpx.Request] = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(
+            200,
+            json={
+                "loser_id": "mc_2",
+                "winner_id": "mc_1",
+                "winner_source_chunk_ids": ["seg_1", "seg_2"],
+            },
+        )
+
+    client = storage_client(handler)
+    out = TOOL_REGISTRY["supersede_card"]({"loser_id": "mc_2", "winner_id": "mc_1"}, client)
+    assert out["loser_id"] == "mc_2"
+    assert out["winner_id"] == "mc_1"
+    assert out["winner_source_chunk_ids"] == ["seg_1", "seg_2"]
+    assert seen[0].method == "POST"
+    assert seen[0].url.path == "/api/memory-cards/mc_2/supersede-into/mc_1"
+
+
+def test_supersede_card_409_propagates(storage_client):
+    def handler(req):
+        return httpx.Response(
+            409, json={"code": "merge_precondition", "message": "winner is hidden"}
+        )
+
+    client = storage_client(handler)
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["supersede_card"]({"loser_id": "mc_2", "winner_id": "mc_1"}, client)
+    assert exc.value.status_code == 409
+
+
+def test_supersede_card_rejects_same_ids(storage_client):
+    client = storage_client(lambda req: httpx.Response(500))
+    # Schema does not forbid loser==winner at the input layer; the storage
+    # router 409s. But we DO want to see the 409 surface clearly. Push a
+    # mock 409 to confirm the propagation path is the one used.
+    def handler(req):
+        return httpx.Response(409, json={"code": "same_ids", "message": "loser==winner"})
+
+    client = storage_client(handler)
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["supersede_card"]({"loser_id": "mc_1", "winner_id": "mc_1"}, client)
+    assert exc.value.status_code == 409

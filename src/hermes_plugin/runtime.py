@@ -41,11 +41,27 @@ def _build_tools_param() -> list[dict]:
     ]
 
 
-def _bootstrap_message(skill_name: str, meeting_id: str, user_question: Optional[str]) -> str:
+def _bootstrap_message(
+    skill_name: str,
+    meeting_id: Optional[str],
+    user_question: Optional[str],
+    workspace_id: Optional[str] = None,
+) -> str:
     if skill_name == "meeting-qa":
         if not user_question:
             raise ValueError("user_question is required for meeting-qa skill")
         return f"Meeting: {meeting_id}\nQuestion: {user_question}"
+    if skill_name == "workspace-qa":
+        if not user_question:
+            raise ValueError("user_question is required for workspace-qa skill")
+        if not workspace_id:
+            raise ValueError("workspace_id is required for workspace-qa skill")
+        return (
+            f"Workspace: {workspace_id}\n"
+            f"Question: {user_question}\n\n"
+            "Use the cross-meeting search tools to find evidence. Cite every "
+            "claim with [meeting:<id>:card:<id>] or [meeting:<id>:seg:<id>]."
+        )
     return f"Process meeting {meeting_id}."
 
 
@@ -88,15 +104,20 @@ def _serialize_tool_input(value: Any) -> Any:
 
 def run_skill(
     skill_name: str,
-    meeting_id: str,
+    meeting_id: Optional[str] = None,
     *,
     user_question: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     client: Optional[StorageRouterClient] = None,
     anthropic_client: Optional["anthropic.Anthropic"] = None,
     model: str = "claude-sonnet-4-5",
     max_iterations: int = 16,
 ) -> dict:
-    """Run a skill against Claude with the four hermes-plugin tools bound.
+    """Run a skill against Claude with all hermes-plugin tools bound.
+
+    For meeting-scoped skills pass ``meeting_id``; for workspace-scoped
+    skills (Wave 4.3 ``workspace-qa``) pass ``workspace_id`` and leave
+    ``meeting_id`` as ``None``.
 
     Returns {"final_text": str, "tool_calls": list, "iterations": int}.
     Hitting ``max_iterations`` returns the partial result with
@@ -104,7 +125,9 @@ def run_skill(
     """
     system = _load_skill(skill_name)
     tools_param = _build_tools_param()
-    bootstrap = _bootstrap_message(skill_name, meeting_id, user_question)
+    bootstrap = _bootstrap_message(
+        skill_name, meeting_id, user_question, workspace_id=workspace_id
+    )
 
     storage_client = client if client is not None else StorageRouterClient()
     llm = anthropic_client if anthropic_client is not None else _default_anthropic_client()
@@ -318,6 +341,204 @@ def _run_chunk_loop(
     return cards_created, final_text
 
 
+def _run_bounded_skill(
+    *,
+    skill_name: str,
+    bootstrap: str,
+    allowed_tools: list[str],
+    storage_client: StorageRouterClient,
+    llm: Any,
+    model: str,
+    max_iterations: int = 12,
+) -> dict:
+    """Generic bounded-tool-budget loop for the Wave 2 audit + consolidation passes.
+
+    Mirrors the per-chunk loop but parameterised by skill prompt and the
+    set of tools the agent is permitted to call. Any tool outside
+    ``allowed_tools`` returns a tool error to the agent (which is then
+    expected to give up that call). Returns
+    ``{tool_calls: list, final_text: str, iterations: int}``.
+    """
+    system = _load_skill(skill_name)
+    tools_param = [
+        {
+            "name": name,
+            "description": TOOL_DESCRIPTIONS[name],
+            "input_schema": TOOL_JSON_SCHEMAS[name],
+        }
+        for name in allowed_tools
+    ]
+    allowed_set = set(allowed_tools)
+
+    messages: list[dict] = [{"role": "user", "content": bootstrap}]
+    tool_calls_log: list[dict] = []
+    iterations = 0
+    last_message: Any = None
+
+    while iterations < max_iterations:
+        iterations += 1
+        last_message = llm.messages.create(
+            model=model,
+            system=system,
+            tools=tools_param,
+            messages=messages,
+            max_tokens=4096,
+        )
+
+        assistant_content = _block_attr(last_message, "content") or []
+        messages.append({"role": "assistant", "content": assistant_content})
+
+        stop_reason = _block_attr(last_message, "stop_reason")
+        if stop_reason != "tool_use":
+            break
+
+        tool_results: list[dict] = []
+        for block in assistant_content:
+            if _block_attr(block, "type") != "tool_use":
+                continue
+            name = _block_attr(block, "name")
+            tool_use_id = _block_attr(block, "id")
+            tool_input = _serialize_tool_input(_block_attr(block, "input"))
+            try:
+                if name not in allowed_set:
+                    raise ToolError(
+                        status_code=403,
+                        code="tool_not_allowed",
+                        message=(
+                            f"Skill {skill_name!r} only permits "
+                            f"{sorted(allowed_set)}; got {name!r}"
+                        ),
+                    )
+                result = TOOL_REGISTRY[name](tool_input, storage_client)
+                is_error = False
+                content_payload: Any = result
+            except ToolError as exc:
+                result = exc.to_payload()
+                is_error = True
+                content_payload = result
+            except KeyError:
+                result = {
+                    "status_code": 404,
+                    "code": "unknown_tool",
+                    "message": f"No such tool: {name!r}",
+                }
+                is_error = True
+                content_payload = result
+
+            tool_calls_log.append({"name": name, "input": tool_input, "result": result})
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "is_error": is_error,
+                    "content": _stringify_result(content_payload),
+                }
+            )
+
+        if not tool_results:
+            break
+
+        messages.append({"role": "user", "content": tool_results})
+
+    return {
+        "final_text": _final_text(last_message) if last_message is not None else "",
+        "tool_calls": tool_calls_log,
+        "iterations": iterations,
+    }
+
+
+def run_card_audit(
+    meeting_id: str,
+    *,
+    client: Optional[StorageRouterClient] = None,
+    anthropic_client: Optional["anthropic.Anthropic"] = None,
+    model: str = "claude-sonnet-4-5",
+    max_iterations: int = 12,
+) -> dict:
+    """Wave 2.1: run the meeting-card-audit skill on a finalized meeting.
+
+    Returns ``{cards_audited, cards_hidden, cards_downgraded, iterations}``.
+    """
+    storage_client = client if client is not None else StorageRouterClient()
+    llm = anthropic_client if anthropic_client is not None else _default_anthropic_client()
+
+    bootstrap = (
+        f"meeting_id: {meeting_id}\n"
+        "Audit every visible memory card for this meeting against the "
+        "transcript. Downgrade weak cards via update_card_confidence; "
+        "hide unsupported cards via hide_card. Report a one-paragraph "
+        "summary at the end."
+    )
+    result = _run_bounded_skill(
+        skill_name="meeting-card-audit",
+        bootstrap=bootstrap,
+        allowed_tools=[
+            "get_meeting_transcript",
+            "search_memory_cards",
+            "update_card_confidence",
+            "hide_card",
+        ],
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
+        max_iterations=max_iterations,
+    )
+    hidden = sum(
+        1 for c in result["tool_calls"] if c["name"] == "hide_card"
+    )
+    downgraded = sum(
+        1 for c in result["tool_calls"] if c["name"] == "update_card_confidence"
+    )
+    return {
+        "cards_hidden": hidden,
+        "cards_downgraded": downgraded,
+        "iterations": result["iterations"],
+        "summary": result["final_text"],
+    }
+
+
+def run_card_consolidation(
+    meeting_id: str,
+    *,
+    client: Optional[StorageRouterClient] = None,
+    anthropic_client: Optional["anthropic.Anthropic"] = None,
+    model: str = "claude-sonnet-4-5",
+    max_iterations: int = 12,
+) -> dict:
+    """Wave 2.2: run the meeting-card-consolidation skill.
+
+    Returns ``{cards_merged, iterations, summary}``.
+    """
+    storage_client = client if client is not None else StorageRouterClient()
+    llm = anthropic_client if anthropic_client is not None else _default_anthropic_client()
+
+    bootstrap = (
+        f"meeting_id: {meeting_id}\n"
+        "Scan the remaining visible memory cards for this meeting. For "
+        "every pair of cards that say substantially the same thing, "
+        "pick the better one (winner) and merge the other (loser) via "
+        "supersede_card(loser_id, winner_id). Report a one-paragraph "
+        "summary at the end."
+    )
+    result = _run_bounded_skill(
+        skill_name="meeting-card-consolidation",
+        bootstrap=bootstrap,
+        allowed_tools=["search_memory_cards", "supersede_card"],
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
+        max_iterations=max_iterations,
+    )
+    merged = sum(
+        1 for c in result["tool_calls"] if c["name"] == "supersede_card"
+    )
+    return {
+        "cards_merged": merged,
+        "iterations": result["iterations"],
+        "summary": result["final_text"],
+    }
+
+
 def _run_summary_pass(
     *,
     topic_sentences: list[str],
@@ -413,11 +634,52 @@ def run_chunked_extraction(
         topic_sentences=topic_sentences, llm=llm, model=model
     )
 
+    # Wave 2.1 + 2.2: agent quality passes run AFTER extraction. They
+    # are best-effort — a failure here should not blow away the cards
+    # the extraction pass already persisted; log + continue.
+    audit_result: dict | None = None
+    consolidation_result: dict | None = None
+    try:
+        audit_result = run_card_audit(
+            meeting_id,
+            client=storage_client,
+            anthropic_client=llm,
+            model=model,
+        )
+    except Exception:  # noqa: BLE001 — quality pass must not fail the extraction
+        logger.exception(
+            "chunked_extraction.audit_failed",
+            extra={"meeting_id": meeting_id},
+        )
+    # Consolidation skill ships in Wave 2.2; in 2.1 the directory is
+    # absent and the call would raise immediately. Only invoke it when
+    # the skill is on disk so 2.1 ships in isolation.
+    if (SKILLS_DIR / "meeting-card-consolidation" / "SKILL.md").is_file():
+        try:
+            consolidation_result = run_card_consolidation(
+                meeting_id,
+                client=storage_client,
+                anthropic_client=llm,
+                model=model,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "chunked_extraction.consolidation_failed",
+                extra={"meeting_id": meeting_id},
+            )
+
     return {
         "cards_created": total_cards,
         "chunks_processed": chunks_processed,
         "summary": summary,
+        "audit": audit_result,
+        "consolidation": consolidation_result,
     }
 
 
-__all__ = ["run_skill", "run_chunked_extraction"]
+__all__ = [
+    "run_skill",
+    "run_chunked_extraction",
+    "run_card_audit",
+    "run_card_consolidation",
+]
