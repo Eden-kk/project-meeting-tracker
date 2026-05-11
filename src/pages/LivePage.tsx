@@ -212,6 +212,11 @@ export default function LivePage() {
                 <span className="mr-2 text-gray-400">
                   {s.start_ms != null ? `${(s.start_ms / 1000).toFixed(0)}s` : '·'}
                 </span>
+                {s.speaker_name && (
+                  <span className="mr-2 font-medium text-gray-700">
+                    {s.speaker_name}:
+                  </span>
+                )}
                 <span>{s.text}</span>
               </li>
             ))}

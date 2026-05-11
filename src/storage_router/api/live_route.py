@@ -1,18 +1,29 @@
-"""Live capture routes — Phase 3 Wave 6.1 stub.
+"""Live capture routes — Phase 3 Wave 6.2 (real STT per chunk).
 
-Browser-side `MediaRecorder` POSTs ~5s WebM chunks to this service. For 6.1
-we persist each chunk to a temp dir and emit a placeholder
-``speaker_segments`` row. Wave 6.2 swaps the placeholder for a real STT call
-by handing the blob to ``ingest_adapter_http.transcribe_voice_file``.
+Browser-side `MediaRecorder` POSTs ~5s WebM chunks to this service. For each
+chunk we:
+  1. persist the blob to ``LIVE_CHUNK_DIR/<meeting>/<seq>.webm`` (so a human
+     can replay/debug),
+  2. hand the file to voice-ingest via
+     ``ingest_adapter_http.transcribe_voice_file``,
+  3. shift each returned segment's ``start_ms`` / ``end_ms`` by the running
+     offset (sum of prior chunk durations) so the merged transcript reads as
+     one continuous timeline,
+  4. write the resulting ``speaker_segments`` rows.
+
+If voice-ingest is unreachable we fall back to a placeholder row so the live
+panel still moves; the row is tagged with ``confidence=0.0`` so callers can
+filter it out later.
 
 Routes:
     POST /api/live-meetings                                  -> create
-    POST /api/live-meetings/{meeting_id}/audio-chunk         -> persist + stub segment
+    POST /api/live-meetings/{meeting_id}/audio-chunk         -> persist + transcribe
     POST /api/live-meetings/{meeting_id}/end                 -> flip status to ready
     GET  /api/live-meetings/{meeting_id}/segments[?since=]   -> poll transcript
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -20,7 +31,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from storage_router import storage
+from storage_router import ingest_adapter_http, storage
 from storage_router.db import get_session
 from storage_router.ids import new_id
 from storage_router.models.db import (
@@ -28,6 +39,15 @@ from storage_router.models.db import (
     MeetingSourceRow,
     SpeakerSegmentRow,
 )
+
+logger = logging.getLogger(__name__)
+
+# Each WebM chunk from the browser is exactly this long. The browser sets
+# `MediaRecorder.start(timeslice=5000)` and the backend only knows the
+# offset by counting chunks, not by inspecting WebM duration headers (those
+# are unreliable mid-stream). If the browser-side timeslice changes, update
+# this constant in lockstep.
+CHUNK_DURATION_MS = 5000
 
 router = APIRouter()
 
@@ -91,9 +111,9 @@ async def receive_chunk(
     audio: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
-    """Persist a single WebM chunk + emit a placeholder segment row.
+    """Persist a chunk, transcribe it via voice-ingest, and append segments.
 
-    Returns ``{seq, segment_id}`` so the client can correlate uploads.
+    Returns ``{seq, segments_added, bytes}`` so the client can correlate.
     """
     meeting = session.get(MeetingRow, meeting_id)
     if meeting is None:
@@ -111,25 +131,67 @@ async def receive_chunk(
     target = _chunk_dir(meeting_id) / f"{seq}.webm"
     target.write_bytes(blob)
 
-    seg = SpeakerSegmentRow(
-        id=new_id("seg"),
-        meeting_id=meeting_id,
-        speaker_id=None,
-        speaker_name=None,
-        start_ms=seq * 5000,
-        end_ms=(seq + 1) * 5000,
-        text=f"[live chunk {seq} received]",
-        confidence=None,
-        source_type="live_voice",
-        is_final=False,
-    )
-    session.add(seg)
+    # Offset = number of completed chunks before this one. Browser-side
+    # MediaRecorder uses a fixed 5s timeslice (CHUNK_DURATION_MS); voice-
+    # ingest segment timestamps are 0-based for the chunk it sees, so we
+    # shift them onto the meeting's running timeline.
+    offset_ms = seq * CHUNK_DURATION_MS
+
+    inserted: list[SpeakerSegmentRow] = []
+    try:
+        transcript = ingest_adapter_http.transcribe_voice_file(target)
+    except Exception as exc:  # noqa: BLE001 — any transport / 5xx error
+        logger.warning(
+            "voice-ingest failed for meeting=%s seq=%s: %s", meeting_id, seq, exc
+        )
+        # Fallback so the UI still progresses; downstream finalize can ignore
+        # rows with confidence=0.0 + the placeholder text.
+        fallback = SpeakerSegmentRow(
+            id=new_id("seg"),
+            meeting_id=meeting_id,
+            speaker_id=None,
+            speaker_name=None,
+            start_ms=offset_ms,
+            end_ms=offset_ms + CHUNK_DURATION_MS,
+            text=f"[live chunk {seq} received — transcription pending]",
+            confidence=0.0,
+            source_type="live_voice",
+            is_final=False,
+        )
+        session.add(fallback)
+        session.commit()
+        return {
+            "seq": seq,
+            "segments_added": 1,
+            "bytes": len(blob),
+            "transcribed": False,
+        }
+
+    for seg in transcript.segments:
+        row = SpeakerSegmentRow(
+            id=new_id("seg"),
+            meeting_id=meeting_id,
+            speaker_id=seg.speaker_id,
+            speaker_name=seg.speaker_name,
+            start_ms=(seg.start_ms or 0) + offset_ms,
+            end_ms=(seg.end_ms or 0) + offset_ms if seg.end_ms is not None else None,
+            text=seg.text,
+            confidence=seg.confidence,
+            # Live capture always records itself as live_voice regardless of
+            # what voice-ingest tagged the source as; the file path through
+            # this route IS live capture.
+            source_type="live_voice",
+            is_final=False,
+        )
+        session.add(row)
+        inserted.append(row)
     session.commit()
 
     return {
         "seq": seq,
-        "segment_id": seg.id,
+        "segments_added": len(inserted),
         "bytes": len(blob),
+        "transcribed": True,
     }
 
 
