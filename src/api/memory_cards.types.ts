@@ -106,3 +106,18 @@ export type ListActionItemsParams = {
   limit?: number;
   offset?: number;
 };
+
+/** Wave 5.3 — tone options for the follow-up draft endpoint. */
+export type FollowupDraftTone = 'neutral' | 'decisive' | 'warm';
+
+export type FollowupDraftInput = {
+  meeting_id: string;
+  recipient?: string;
+  tone?: FollowupDraftTone;
+};
+
+export type FollowupDraftResponse = {
+  meeting_id: string;
+  markdown: string;
+  cards_referenced: string[];
+};

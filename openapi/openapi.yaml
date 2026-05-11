@@ -1,10 +1,6 @@
 openapi: 3.0.3
 info:
-<<<<<<< HEAD
-  title: Tracker API — Phase 3 surface
-=======
   title: Tracker API — Phase 3 + Wave 4 surface
->>>>>>> origin/feat/p6-keyword-search
   version: 0.6.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been

@@ -327,6 +327,181 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memory-cards/{id}/confidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a card's confidence (audit pass)
+         * @description Wave 2.1. Called by the meeting-card-audit skill to downgrade
+         *     weakly-supported cards. Sets `confidence` and (optionally) the
+         *     free-text `audit_reason`.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MemoryCardConfidencePatch"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/memory-cards/{id}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Soft-delete a card (audit pass)
+         * @description Wave 2.1. Sets `hidden_at = NOW()` and persists the reason
+         *     to `audit_reason`. Idempotent; calling twice does not flip the
+         *     timestamp.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MemoryCardHideRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory-cards/{loser_id}/supersede-into/{winner_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a near-duplicate card into a canonical winner (consolidation pass)
+         * @description Wave 2.2. Validates that both cards belong to the same meeting,
+         *     neither is already hidden, and the winner is not itself
+         *     superseded. Hides the loser, points its `superseded_by_id` at
+         *     the winner, and appends the loser's `source_chunk_ids` to the
+         *     winner (deduplicated).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    loser_id: string;
+                    winner_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SupersedeResponse"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Merge precondition failed */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/meetings/{id}/finalize": {
         parameters: {
             query?: never;
@@ -468,6 +643,176 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search/transcripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cross-meeting keyword search over transcript segments (Wave 4.1)
+         * @description Postgres FTS over `speaker_segments.text` (English config). Hits link
+         *     back to the originating meeting + segment. Scoped to a workspace.
+         */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    workspace_id: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TranscriptSearchResponse"];
+                    };
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cross-meeting keyword search over memory cards (Wave 4.2)
+         * @description Postgres FTS over `memory_cards.title || ' ' || content` (English
+         *     config). Honors `hidden_at IS NULL` (the agent's soft-delete flag).
+         *     Optional `type` filter narrows to a single card type.
+         */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    workspace_id: string;
+                    type?: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CardSearchResponse"];
+                    };
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/qa/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a question across every meeting in a workspace (Wave 4.3)
+         * @description Hermes drives the answer via the `workspace-qa` skill, which is
+         *     bound to `search_workspace_transcripts` + `search_workspace_cards`.
+         *     The skill emits inline citations in the form
+         *     `[meeting:<id>:card:<id>]` or `[meeting:<id>:seg:<id>]`; this
+         *     route parses them out of the final answer so the SPA can render
+         *     deep links.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WorkspaceQARequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceQAResponse"];
+                    };
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Hermes plugin unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HermesUnavailable"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -551,6 +896,8 @@ export interface components {
             hidden_at?: string | null;
             /** @description Canonical winner card from the agent consolidation pass. */
             superseded_by_id?: string | null;
+            /** @description Rationale recorded by the audit pass when a card is downgraded or hidden. */
+            audit_reason?: string | null;
             created_by_agent?: string | null;
             /** Format: date-time */
             created_at?: string | null;
@@ -588,6 +935,18 @@ export interface components {
                 message: string;
             };
         };
+        MemoryCardConfidencePatch: {
+            confidence: number;
+            reason?: string | null;
+        };
+        MemoryCardHideRequest: {
+            reason?: string | null;
+        };
+        SupersedeResponse: {
+            loser_id: string;
+            winner_id: string;
+            winner_source_chunk_ids: string[];
+        };
         FinalizeResponse: {
             meeting_id: string;
             /** Format: date-time */
@@ -619,6 +978,68 @@ export interface components {
             /** @default 0.85 */
             confidence: number;
             citations: components["schemas"]["QAEvidenceItem"][];
+            /** @default false */
+            weak_evidence: boolean;
+        };
+        TranscriptSearchHit: {
+            segment_id: string;
+            meeting_id: string;
+            meeting_title: string;
+            /** @default  */
+            speaker: string;
+            /** @default 0 */
+            start_ms: number;
+            /** @default 0 */
+            end_ms: number;
+            text: string;
+            /** @default  */
+            snippet: string;
+            /** @default 0 */
+            rank: number;
+        };
+        TranscriptSearchResponse: {
+            items: components["schemas"]["TranscriptSearchHit"][];
+            total: number;
+        };
+        CardSearchHit: {
+            memory_card_id: string;
+            meeting_id: string;
+            meeting_title: string;
+            /** @enum {string} */
+            type: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+            title: string;
+            content: string;
+            /** @default 0 */
+            confidence: number;
+            source_start_ms?: number | null;
+            source_end_ms?: number | null;
+            /** @default  */
+            snippet: string;
+            /** @default 0 */
+            rank: number;
+        };
+        CardSearchResponse: {
+            items: components["schemas"]["CardSearchHit"][];
+            total: number;
+        };
+        WorkspaceQARequest: {
+            workspace_id: string;
+            question: string;
+        };
+        WorkspaceQACitation: {
+            meeting_id: string;
+            /** @default  */
+            meeting_title: string;
+            memory_card_id?: string | null;
+            segment_id?: string | null;
+            /** @default  */
+            snippet: string;
+        };
+        WorkspaceQAResponse: {
+            answer: string;
+            /** @default 0.6 */
+            confidence: number;
+            citations: components["schemas"]["WorkspaceQACitation"][];
             /** @default false */
             weak_evidence: boolean;
         };
