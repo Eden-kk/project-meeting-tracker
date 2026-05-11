@@ -1,5 +1,10 @@
 import { http, HttpResponse } from 'msw';
-import type { ImportAccepted, Meeting, NormalizedTranscript } from '../api/client';
+import type {
+  ImportAccepted,
+  Meeting,
+  MeetingsList,
+  NormalizedTranscript,
+} from '../api/client';
 import { expectedNormalized, makeFixtureMeeting } from './fixtures';
 
 type Entry = { meeting: Meeting; createdAt: number };
@@ -19,9 +24,11 @@ function currentStatus(entry: Entry): Meeting['status'] {
 }
 
 export const handlers = [
-  http.post('*/api/conversations/import', async () => {
+  http.post('*/api/conversations/import', async ({ request }) => {
     const ids = nextId();
-    const meeting = makeFixtureMeeting(ids.meeting_id, ids.artifact_id);
+    const form = await request.formData();
+    const title = (form.get('title') as string | null) ?? '';
+    const meeting = makeFixtureMeeting(ids.meeting_id, ids.artifact_id, title);
     meetings.set(ids.meeting_id, { meeting, createdAt: Date.now() });
     const body: ImportAccepted = {
       artifact_id: ids.artifact_id,
@@ -29,6 +36,21 @@ export const handlers = [
       processing_status: 'received',
     };
     return HttpResponse.json(body, { status: 202 });
+  }),
+
+  http.get('*/api/meetings', ({ request }) => {
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get('limit') ?? 50);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    // Newest insertion first; mirrors the backend's created_at DESC ordering.
+    const all = [...meetings.entries()]
+      .sort((a, b) => b[1].createdAt - a[1].createdAt)
+      .map(([, entry]) => ({ ...entry.meeting, status: currentStatus(entry) }));
+    const body: MeetingsList = {
+      items: all.slice(offset, offset + limit),
+      total: all.length,
+    };
+    return HttpResponse.json(body);
   }),
 
   http.get('*/api/meetings/:id', ({ params }) => {

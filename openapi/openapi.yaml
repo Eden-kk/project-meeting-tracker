@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 1 surface
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Phase-1 endpoints for the Hermes-powered meeting memory tracker.
     Only the routes needed by Phase 1 (shared import + basic review) are
@@ -58,6 +58,36 @@ paths:
                 $ref: '#/components/schemas/ImportAccepted'
         '400':
           description: "Invalid input. Codes: no_input (zero body parts present), multiple_inputs (more than one body part present), invalid_format (unsupported file type)."
+
+  /api/meetings:
+    get:
+      summary: List meetings for a workspace
+      parameters:
+        - in: query
+          name: workspace_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+        - in: query
+          name: offset
+          required: false
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Meeting' }
+                  total: { type: integer, minimum: 0 }
 
   /api/meetings/{id}:
     get:
@@ -136,10 +166,11 @@ components:
     Meeting:
       description: Mirrors schemas/meeting.schema.json
       type: object
-      required: [meeting_id, artifact_id, status, evidence_quality]
+      required: [meeting_id, artifact_id, title, status, evidence_quality]
       properties:
         meeting_id:        { type: string }
         artifact_id:       { type: string }
+        title:             { type: string, default: '' }
         status:
           type: string
           enum: [live, processing, ready, finalized, failed]

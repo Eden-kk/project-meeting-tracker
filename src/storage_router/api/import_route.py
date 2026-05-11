@@ -89,7 +89,7 @@ async def import_conversation(
             visibility=visibility,
             labels=labels,
         )
-        meeting = storage.create_meeting(session, artifact_id=artifact.id)
+        meeting = storage.create_meeting(session, artifact_id=artifact.id, title=title)
         from storage_router.ids import new_id
         from storage_router.models.db import MeetingSourceRow
 

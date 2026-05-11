@@ -30,6 +30,24 @@ class Settings(BaseSettings):
         default="stub",
         validation_alias="INGEST_BACKEND",
     )
+    voice_ingest_url: str = Field(
+        default="http://127.0.0.1:8021",
+        validation_alias="VOICE_INGEST_URL",
+    )
+    transcript_ingest_url: str = Field(
+        default="http://127.0.0.1:8011",
+        validation_alias="TRANSCRIPT_INGEST_URL",
+    )
+    # Whisper on CPU is roughly 1x real-time; 1800s headroom covers ~30 min clips.
+    voice_ingest_timeout_seconds: float = Field(
+        default=1800.0,
+        validation_alias="VOICE_INGEST_TIMEOUT_SECONDS",
+    )
+    # Transcript parsing is sub-second; 30s is a generous ceiling for retries/network.
+    transcript_ingest_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="TRANSCRIPT_INGEST_TIMEOUT_SECONDS",
+    )
 
 
 settings = Settings()
