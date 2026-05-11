@@ -59,4 +59,3 @@ the API surface from openapi.yaml.
 5. Build the three pages above against MSW
 6. Once D is reachable, swap MSW out for the real backend
 7. E2E happy path: upload sample_transcript.vtt → see processing → see transcript
-```
