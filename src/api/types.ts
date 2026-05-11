@@ -214,6 +214,437 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memory-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a memory card (draft)
+         * @description Inserts a new MemoryCard in state `draft`. The server assigns
+         *     `memory_card_id` and timestamps. Returns 404 if `meeting_id` is unknown.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MemoryCardCreate"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Meeting not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meetings/{id}/memory-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List memory cards for a meeting */
+        get: {
+            parameters: {
+                query?: {
+                    type?: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+                    state?: "candidate" | "draft" | "committed" | "rejected";
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCardListResponse"];
+                    };
+                };
+                /** @description Meeting not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory-cards/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch a draft memory card
+         * @description Only allowed when state is `draft`. Whitelist of editable fields.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MemoryCardPatch"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Illegal transition (card not in draft) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IllegalTransition"];
+                    };
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/memory-cards/{id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Commit a draft memory card
+         * @description Transitions `draft` → `committed`; clears `needs_review`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Illegal transition */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IllegalTransition"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memory-cards/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a draft memory card
+         * @description Transitions `draft` → `rejected`; clears `needs_review`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemoryCard"];
+                    };
+                };
+                /** @description Card not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Illegal transition */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IllegalTransition"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meetings/{id}/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize a meeting via Hermes
+         * @description Runs `hermes_plugin.meeting_finalization`, persists returned cards as
+         *     `draft` MemoryCards, marks the meeting `finalized`, and returns a summary.
+         *     Synchronous in Phase 2; long-running calls block. For timestamped
+         *     transcripts the plugin chunks the meeting into `chunk_minutes`-sized
+         *     windows and runs one Claude pass per window so long meetings don't
+         *     exceed the model context budget.
+         */
+        post: {
+            parameters: {
+                query?: {
+                    /**
+                     * @description Time-window size (in minutes) used by the chunked extractor.
+                     *     Out-of-range values return 422. Untimestamped transcripts fall
+                     *     back to single-pass finalization regardless of this value.
+                     */
+                    chunk_minutes?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FinalizeResponse"];
+                    };
+                };
+                /** @description Meeting not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Meeting already finalized */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlreadyFinalized"];
+                    };
+                };
+                /** @description Hermes plugin unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HermesUnavailable"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/qa/meeting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a question about a single meeting (Hermes-backed) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["QARequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QAResponse"];
+                    };
+                };
+                /** @description Meeting not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Validation error */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Hermes plugin unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HermesUnavailable"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -271,6 +702,111 @@ export interface components {
             /** @enum {string} */
             source_type: "live_voice" | "zoom_rtms" | "voice_file" | "transcript_file" | "pasted_transcript";
             is_final: boolean;
+        };
+        /** @description Mirrors schemas/memory_card.schema.json */
+        MemoryCard: {
+            memory_card_id: string;
+            meeting_id: string;
+            /** @enum {string} */
+            state: "candidate" | "draft" | "committed" | "rejected";
+            /** @enum {string} */
+            type: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+            title: string;
+            content: string;
+            source_chunk_ids: string[];
+            source_start_ms?: number | null;
+            source_end_ms?: number | null;
+            speakers_json?: string[] | null;
+            confidence: number;
+            /** @default true */
+            needs_review: boolean | null;
+            created_by_agent?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        /** @description Request body for POST /api/memory-cards (also the per-card shape Hermes returns from meeting_finalization). */
+        MemoryCardCreate: {
+            meeting_id: string;
+            /** @enum {string} */
+            type: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+            title: string;
+            content: string;
+            source_chunk_ids: string[];
+            source_start_ms?: number | null;
+            source_end_ms?: number | null;
+            speakers_json?: string[] | null;
+            confidence: number;
+            /** @default true */
+            needs_review: boolean;
+            created_by_agent?: string | null;
+        };
+        /** @description Partial update for a draft MemoryCard. Whitelist; state transitions go through commit/reject. */
+        MemoryCardPatch: {
+            /** @enum {string} */
+            type?: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
+            title?: string;
+            content?: string;
+            source_chunk_ids?: string[];
+            source_start_ms?: number | null;
+            source_end_ms?: number | null;
+            speakers_json?: string[] | null;
+            confidence?: number;
+            needs_review?: boolean;
+        };
+        MemoryCardListResponse: {
+            items: components["schemas"]["MemoryCard"][];
+            total: number;
+        };
+        IllegalTransition: {
+            error: {
+                /** @enum {string} */
+                code: "illegal_transition";
+                from: string;
+                to: string;
+            };
+        };
+        AlreadyFinalized: {
+            error: {
+                /** @enum {string} */
+                code: "already_finalized";
+            };
+        };
+        HermesUnavailable: {
+            error: {
+                /** @enum {string} */
+                code: "hermes_unavailable";
+                message: string;
+            };
+        };
+        FinalizeResponse: {
+            meeting_id: string;
+            /** Format: date-time */
+            finalized_at: string;
+            cards_created: number;
+            summary: string;
+            /**
+             * @description Number of transcript chunks the chunked extractor processed.
+             *     Defaults to 1 for the legacy single-pass finalization path.
+             * @default 1
+             */
+            chunks_processed: number;
+        };
+        QARequest: {
+            meeting_id: string;
+            question: string;
+        };
+        QAEvidenceItem: {
+            chunk_id: string;
+            text: string;
+            speaker?: string | null;
+            start_ms?: number | null;
+            end_ms?: number | null;
+        };
+        QAResponse: {
+            answer: string;
+            evidence: components["schemas"]["QAEvidenceItem"][];
         };
     };
     responses: never;
