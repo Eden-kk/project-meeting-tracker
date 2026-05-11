@@ -1,7 +1,7 @@
-"""GET /api/meetings/{id} and GET /api/meetings/{id}/transcript."""
+"""GET /api/meetings list, GET /api/meetings/{id}, GET /api/meetings/{id}/transcript."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,22 @@ def _meeting_to_contract(row) -> Meeting:
         current_schema=row.current_schema,
         evidence_quality=row.evidence_quality,
     )
+
+
+@router.get("/api/meetings")
+def list_meetings(
+    workspace_id: str = Query(...),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    rows, total = storage.list_meetings(
+        session, workspace_id=workspace_id, limit=limit, offset=offset
+    )
+    return {
+        "items": [_meeting_to_contract(r).model_dump(mode="json") for r in rows],
+        "total": total,
+    }
 
 
 @router.get("/api/meetings/{meeting_id}")

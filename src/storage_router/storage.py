@@ -1,7 +1,7 @@
 """Transactional repository functions over the Phase-1 ORM."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from storage_router.ids import new_id
 from storage_router.models.contracts import NormalizedTranscript, SpeakerSegment, SourceType
@@ -97,6 +97,30 @@ def persist_transcript_segments(
 
 def get_meeting(session, meeting_id: str) -> MeetingRow | None:
     return session.get(MeetingRow, meeting_id)
+
+
+def list_meetings(
+    session, *, workspace_id: str, limit: int = 50, offset: int = 0
+) -> tuple[list[MeetingRow], int]:
+    """Return (rows, total) for a workspace, newest artifact first."""
+    base = (
+        select(MeetingRow)
+        .join(ConversationArtifactRow, MeetingRow.artifact_id == ConversationArtifactRow.id)
+        .where(ConversationArtifactRow.workspace_id == workspace_id)
+    )
+    total = session.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one()
+    rows = (
+        session.execute(
+            base.order_by(ConversationArtifactRow.created_at.desc(), MeetingRow.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows), int(total)
 
 
 def get_transcript(session, meeting_id: str) -> NormalizedTranscript:
