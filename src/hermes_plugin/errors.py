@@ -32,3 +32,31 @@ class StorageUnavailable(Exception):
     The tool layer wraps this as a ``ToolError(status_code=503,
     code='storage_unavailable')`` so callers see a single error type.
     """
+
+
+class HermesPluginError(Exception):
+    """Base class for hermes_plugin runtime errors that escape the tool loop."""
+
+
+class ChunkedExtractionError(HermesPluginError):
+    """Raised when a per-chunk Claude call fails mid-run.
+
+    Carries partial-progress counts so callers (and the storage-router
+    seam) can surface "we got K cards across N chunks before bailing"
+    instead of pretending no progress was made.
+    """
+
+    def __init__(
+        self,
+        *,
+        chunks_processed: int,
+        cards_created: int,
+        cause: BaseException,
+    ) -> None:
+        self.chunks_processed = chunks_processed
+        self.cards_created = cards_created
+        self.cause = cause
+        super().__init__(
+            f"Chunked extraction failed after {chunks_processed} chunk(s) "
+            f"and {cards_created} card(s): {cause!r}"
+        )

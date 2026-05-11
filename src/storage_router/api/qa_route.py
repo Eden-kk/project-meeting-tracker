@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,7 +35,11 @@ def _hermes_unavailable(exc: hermes_runtime.HermesUnavailable) -> JSONResponse:
 
 
 @router.post("/api/meetings/{meeting_id}/finalize")
-def finalize_meeting(meeting_id: str, session: Session = Depends(get_session)):
+def finalize_meeting(
+    meeting_id: str,
+    chunk_minutes: int = Query(5, ge=1, le=30),
+    session: Session = Depends(get_session),
+):
     meeting = session.execute(
         select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
     ).scalar_one_or_none()
@@ -48,26 +52,39 @@ def finalize_meeting(meeting_id: str, session: Session = Depends(get_session)):
         )
 
     try:
-        result = hermes_runtime.run_meeting_finalization(meeting_id)
+        result = hermes_runtime.run_meeting_finalization(
+            meeting_id, chunk_minutes=chunk_minutes
+        )
     except hermes_runtime.HermesUnavailable as e:
         return _hermes_unavailable(e)
 
-    cards_in = [MemoryCardCreate(**c) for c in result.get("cards", [])]
-    for card in cards_in:
-        storage.create_memory_card(
-            session,
-            meeting_id=meeting_id,
-            type=card.type.value,
-            title=card.title,
-            content=card.content,
-            source_chunk_ids=card.source_chunk_ids,
-            confidence=card.confidence,
-            source_start_ms=card.source_start_ms,
-            source_end_ms=card.source_end_ms,
-            speakers_json=card.speakers_json,
-            needs_review=card.needs_review,
-            created_by_agent=card.created_by_agent,
-        )
+    # Two payload shapes coexist during the chunked-summarization rollout:
+    #   * Legacy single-pass: {"cards": [...], "summary": "..."} — route
+    #     persists the cards itself.
+    #   * Chunked path: {"cards_created": int, "summary": str,
+    #     "chunks_processed": int} — cards were already persisted by the
+    #     create_draft_memory_card tool inside the plugin.
+    cards_payload = result.get("cards")
+    if cards_payload is not None:
+        cards_in = [MemoryCardCreate(**c) for c in cards_payload]
+        for card in cards_in:
+            storage.create_memory_card(
+                session,
+                meeting_id=meeting_id,
+                type=card.type.value,
+                title=card.title,
+                content=card.content,
+                source_chunk_ids=card.source_chunk_ids,
+                confidence=card.confidence,
+                source_start_ms=card.source_start_ms,
+                source_end_ms=card.source_end_ms,
+                speakers_json=card.speakers_json,
+                needs_review=card.needs_review,
+                created_by_agent=card.created_by_agent,
+            )
+        cards_created = len(cards_in)
+    else:
+        cards_created = int(result.get("cards_created", 0))
 
     finalized_at = datetime.now(UTC)
     meeting.status = "finalized"
@@ -77,8 +94,9 @@ def finalize_meeting(meeting_id: str, session: Session = Depends(get_session)):
     return FinalizeResponse(
         meeting_id=meeting_id,
         finalized_at=finalized_at,
-        cards_created=len(cards_in),
+        cards_created=cards_created,
         summary=result.get("summary", ""),
+        chunks_processed=int(result.get("chunks_processed", 1)),
     ).model_dump(mode="json")
 
 
