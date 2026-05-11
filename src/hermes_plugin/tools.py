@@ -55,7 +55,9 @@ def search_memory_cards(args: dict, client: StorageRouterClient) -> dict:
         raise _wrap_validation(exc) from exc
     try:
         raw = client.list_memory_cards(
-            parsed.meeting_id, type=parsed.type, state=parsed.state
+            parsed.meeting_id,
+            type=parsed.type,
+            include_hidden=bool(parsed.include_hidden),
         )
     except StorageUnavailable as exc:
         raise _wrap_storage(exc) from exc
@@ -63,12 +65,14 @@ def search_memory_cards(args: dict, client: StorageRouterClient) -> dict:
 
 
 def create_draft_memory_card(args: dict, client: StorageRouterClient) -> dict:
+    """Create a memory card. The 'draft' name is preserved on the tool for
+    backwards compatibility with the Hermes skill prompts; the storage layer
+    no longer carries any per-card state machine."""
     try:
         parsed = CreateDraftMemoryCardInput.model_validate(args)
     except ValidationError as exc:
         raise _wrap_validation(exc) from exc
     payload = parsed.model_dump(mode="json", exclude_none=True)
-    payload["state"] = "draft"
     payload["created_by_agent"] = _AGENT_TAG
     try:
         raw = client.create_memory_card(payload)
@@ -99,10 +103,11 @@ TOOL_REGISTRY: dict[str, Callable[[dict, StorageRouterClient], dict]] = {
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "get_meeting_transcript": "Fetch the normalized transcript (segments) for a meeting.",
-    "search_memory_cards": "List memory cards for a meeting, optionally filtered by type/state.",
+    "search_memory_cards": "List visible memory cards for a meeting, optionally filtered by type.",
     "create_draft_memory_card": (
-        "Create a draft memory card for a meeting. The server records "
-        "state='draft' and created_by_agent='hermes-plugin' automatically."
+        "Create a memory card for a meeting. The server tags "
+        "created_by_agent='hermes-plugin' automatically. Card is live "
+        "immediately; the audit + consolidation passes flag bad cards."
     ),
     "finalize_meeting_memory": (
         "Finalize a meeting: commit drafts and freeze the memory record."

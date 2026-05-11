@@ -1,9 +1,18 @@
-"""Memory-card CRUD + state-transition tests against live Postgres."""
+"""Memory-card create + list tests against live Postgres.
+
+Phase-3 redesign: there is no per-card `state` enum, no `needs_review`,
+and the patch/commit/reject routes are gone. The list endpoint hides
+agent-soft-deleted rows (`hidden_at IS NOT NULL`) by default.
+"""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
+from sqlalchemy import select
 
 from storage_router.db import SessionLocal
+from storage_router.models.db import MemoryCardRow
 from storage_router.storage import create_artifact, create_meeting
 
 
@@ -38,14 +47,18 @@ def _card_payload(meeting_id: str, **overrides) -> dict:
 
 
 # 1
-async def test_create_card_returns_201_and_draft(client) -> None:
+async def test_create_card_returns_201_without_state_field(client) -> None:
     mid = _seed_meeting()
     r = await client.post("/api/memory-cards", json=_card_payload(mid))
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["memory_card_id"].startswith("mem_")
-    assert body["state"] == "draft"
     assert body["meeting_id"] == mid
+    # Phase-3: state + needs_review fields are gone from the contract.
+    assert "state" not in body
+    assert "needs_review" not in body
+    assert body["hidden_at"] is None
+    assert body["superseded_by_id"] is None
 
 
 # 2
@@ -65,21 +78,13 @@ async def test_create_card_missing_required_field_422(client) -> None:
     assert r.status_code == 422
 
 
-# 4
-async def test_list_filter_by_state(client) -> None:
+# 4 — supplying `needs_review` (a removed field) is rejected by extra="forbid".
+async def test_create_rejects_legacy_needs_review_field(client) -> None:
     mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    cid = r.json()["memory_card_id"]
-    # commit one card so we have a non-draft.
-    await client.post(f"/api/memory-cards/{cid}/commit")
-    # add another that stays draft.
-    await client.post("/api/memory-cards", json=_card_payload(mid, title="x"))
-
-    r = await client.get(f"/api/meetings/{mid}/memory-cards?state=draft")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["total"] == 1
-    assert all(item["state"] == "draft" for item in body["items"])
+    payload = _card_payload(mid)
+    payload["needs_review"] = True
+    r = await client.post("/api/memory-cards", json=payload)
+    assert r.status_code == 422
 
 
 # 5
@@ -97,31 +102,6 @@ async def test_list_filter_by_type(client) -> None:
 
 
 # 6
-async def test_list_combined_filter_intersection(client) -> None:
-    mid = _seed_meeting()
-    # draft + decision (target)
-    await client.post("/api/memory-cards", json=_card_payload(mid, type="decision"))
-    # draft + action_item
-    await client.post(
-        "/api/memory-cards", json=_card_payload(mid, type="action_item")
-    )
-    # committed + decision
-    r = await client.post(
-        "/api/memory-cards", json=_card_payload(mid, type="decision", title="x")
-    )
-    cid = r.json()["memory_card_id"]
-    await client.post(f"/api/memory-cards/{cid}/commit")
-
-    r = await client.get(
-        f"/api/meetings/{mid}/memory-cards?type=decision&state=draft"
-    )
-    body = r.json()
-    assert body["total"] == 1
-    assert body["items"][0]["type"] == "decision"
-    assert body["items"][0]["state"] == "draft"
-
-
-# 7
 async def test_list_pagination(client) -> None:
     mid = _seed_meeting()
     for i in range(3):
@@ -135,107 +115,45 @@ async def test_list_pagination(client) -> None:
     assert body["total"] == 3
 
 
-# 8
+# 7
 async def test_list_unknown_meeting_404(client) -> None:
     r = await client.get("/api/meetings/m_does_not_exist/memory-cards")
     assert r.status_code == 404
 
 
-# 9
-async def test_patch_draft_ok_advances_updated_at(client) -> None:
+# 8 — NEW: hidden_at filter excludes agent-soft-deleted rows by default;
+# include_hidden=true returns them.
+async def test_list_excludes_hidden_by_default(client) -> None:
     mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    created = r.json()
-    cid = created["memory_card_id"]
+    await client.post("/api/memory-cards", json=_card_payload(mid, title="visible"))
+    r2 = await client.post("/api/memory-cards", json=_card_payload(mid, title="hidden"))
+    hidden_id = r2.json()["memory_card_id"]
 
-    r = await client.patch(
-        f"/api/memory-cards/{cid}", json={"title": "Adopt Postgres v2"}
-    )
-    assert r.status_code == 200, r.text
-    patched = r.json()
-    assert patched["title"] == "Adopt Postgres v2"
-    assert patched["updated_at"] >= created["updated_at"]
+    # Mark the second card as agent-hidden by writing directly to the DB
+    # (later features will expose this through a Hermes tool).
+    with SessionLocal() as s:
+        row = s.execute(
+            select(MemoryCardRow).where(MemoryCardRow.id == hidden_id)
+        ).scalar_one()
+        row.hidden_at = datetime.now(UTC)
+        s.commit()
 
-
-# 10
-async def test_patch_partial_preserves_untouched(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    original = r.json()
-    cid = original["memory_card_id"]
-
-    r = await client.patch(
-        f"/api/memory-cards/{cid}", json={"title": "renamed"}
-    )
-    after = r.json()
-    assert after["content"] == original["content"]
-    assert after["confidence"] == original["confidence"]
-    assert after["speakers_json"] == original["speakers_json"]
-
-
-# 11
-async def test_patch_state_field_is_422(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    cid = r.json()["memory_card_id"]
-    r = await client.patch(
-        f"/api/memory-cards/{cid}", json={"state": "committed"}
-    )
-    assert r.status_code == 422
-
-
-# 12
-async def test_patch_committed_is_409(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    cid = r.json()["memory_card_id"]
-    await client.post(f"/api/memory-cards/{cid}/commit")
-    r = await client.patch(f"/api/memory-cards/{cid}", json={"title": "nope"})
-    assert r.status_code == 409
+    r = await client.get(f"/api/meetings/{mid}/memory-cards")
     body = r.json()
-    assert body["error"]["code"] == "illegal_transition"
-    assert body["error"]["from"] == "draft"
-    assert body["error"]["to"] == "committed"
+    assert body["total"] == 1, body
+    assert body["items"][0]["title"] == "visible"
+    assert body["items"][0]["hidden_at"] is None
 
-
-# 13
-async def test_double_commit_409(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    cid = r.json()["memory_card_id"]
-    r1 = await client.post(f"/api/memory-cards/{cid}/commit")
-    assert r1.status_code == 200
-    r2 = await client.post(f"/api/memory-cards/{cid}/commit")
-    assert r2.status_code == 409
-    assert r2.json()["error"]["code"] == "illegal_transition"
-
-
-# 14
-async def test_reject_then_commit_409(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post("/api/memory-cards", json=_card_payload(mid))
-    cid = r.json()["memory_card_id"]
-    r1 = await client.post(f"/api/memory-cards/{cid}/reject")
-    assert r1.status_code == 200
-    assert r1.json()["state"] == "rejected"
-    r2 = await client.post(f"/api/memory-cards/{cid}/commit")
-    assert r2.status_code == 409
-
-
-# 15
-async def test_commit_clears_needs_review(client) -> None:
-    mid = _seed_meeting()
-    r = await client.post(
-        "/api/memory-cards", json=_card_payload(mid, needs_review=True)
+    # Opt-in to see hidden rows.
+    r3 = await client.get(
+        f"/api/meetings/{mid}/memory-cards?include_hidden=true"
     )
-    assert r.json()["needs_review"] is True
-    cid = r.json()["memory_card_id"]
-    r = await client.post(f"/api/memory-cards/{cid}/commit")
-    assert r.status_code == 200
-    assert r.json()["needs_review"] is False
+    body2 = r3.json()
+    assert body2["total"] == 2
+    assert {item["title"] for item in body2["items"]} == {"visible", "hidden"}
 
 
-# 16
+# 9 — legacy commit/reject/patch routes are gone; verify 4xx from FastAPI.
 @pytest.mark.parametrize(
     "method,path,payload",
     [
@@ -244,9 +162,11 @@ async def test_commit_clears_needs_review(client) -> None:
         ("POST", "/api/memory-cards/mem_nope/reject", None),
     ],
 )
-async def test_unknown_card_404(client, method, path, payload) -> None:
+async def test_legacy_routes_return_4xx(client, method, path, payload) -> None:
     if method == "PATCH":
         r = await client.patch(path, json=payload)
     else:
         r = await client.post(path)
-    assert r.status_code == 404
+    # FastAPI returns 405 when the verb has no handler, 404 when the
+    # subpath does not exist. Either is acceptable: the route is gone.
+    assert r.status_code in (404, 405), (path, r.status_code, r.text)

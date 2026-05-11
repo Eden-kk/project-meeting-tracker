@@ -12,10 +12,11 @@ from hermes_plugin.tools import TOOL_REGISTRY
 
 
 # A complete valid memory-card payload reused in several tests.
+# Phase-3: no `state`, no `needs_review`. The agent owns quality via
+# `confidence`, `hidden_at`, `superseded_by_id`.
 _VALID_CARD = {
     "memory_card_id": "mc_1",
     "meeting_id": "m_1",
-    "state": "draft",
     "type": "decision",
     "title": "t",
     "content": "c",
@@ -61,16 +62,19 @@ def test_search_memory_cards_happy_path(storage_client):
     assert dict(seen[0].url.params) == {"type": "decision"}
 
 
-def test_search_memory_cards_invalid_state(storage_client):
+def test_search_memory_cards_rejects_legacy_state_arg(storage_client):
+    """Phase-3: the `state` arg is gone; supplying it is a 422."""
     client = storage_client(lambda req: httpx.Response(200, json={"cards": []}))
     with pytest.raises(ToolError) as exc:
         TOOL_REGISTRY["search_memory_cards"](
-            {"meeting_id": "m_1", "state": "garbage"}, client
+            {"meeting_id": "m_1", "state": "draft"}, client
         )
     assert exc.value.status_code == 422
 
 
-def test_create_draft_memory_card_injects_state_and_agent(storage_client):
+def test_create_draft_memory_card_tags_agent(storage_client):
+    """Phase-3: storage layer no longer accepts `state`; the tool only
+    injects `created_by_agent`."""
     seen_payloads: list[dict] = []
 
     def handler(req):
@@ -90,18 +94,9 @@ def test_create_draft_memory_card_injects_state_and_agent(storage_client):
         client,
     )
     assert out["memory_card_id"] == "mc_1"
-    assert seen_payloads[0]["state"] == "draft"
+    assert "state" not in seen_payloads[0]
+    assert "needs_review" not in seen_payloads[0]
     assert seen_payloads[0]["created_by_agent"] == "hermes-plugin"
-    # The input model has no `state` field, so the wire payload's
-    # `state` came from the tool layer, not the caller.
-    assert "state" not in {
-        "meeting_id",
-        "type",
-        "title",
-        "content",
-        "source_chunk_ids",
-        "confidence",
-    }
 
 
 def test_create_draft_memory_card_invalid_input(storage_client):

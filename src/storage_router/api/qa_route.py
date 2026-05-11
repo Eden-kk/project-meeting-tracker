@@ -65,7 +65,6 @@ def finalize_meeting(meeting_id: str, session: Session = Depends(get_session)):
             source_start_ms=card.source_start_ms,
             source_end_ms=card.source_end_ms,
             speakers_json=card.speakers_json,
-            needs_review=card.needs_review,
             created_by_agent=card.created_by_agent,
         )
 
