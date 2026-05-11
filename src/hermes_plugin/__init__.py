@@ -23,6 +23,7 @@ __all__ = [
     "followup_draft",
     "workspace_qa",
     "live_summary",
+    "live_extraction",
 ]
 
 
@@ -202,6 +203,24 @@ def live_summary(meeting_id: str) -> dict:
     from .runtime import run_live_summary as _run_live_summary
 
     return _run_live_summary(meeting_id)
+
+
+def live_extraction(meeting_id: str, since_ms: int | None) -> dict:
+    """Storage-router-facing entrypoint for the Wave 6.4 live extraction tick.
+
+    Drives the ``live-meeting-extraction`` skill against the
+    transcript window ``[max(0, since_ms - 30s), now]``. Returns
+    ``{cards_created, window_start_ms, window_end_ms, summary,
+    iterations}``. The caller persists ``window_end_ms`` back to
+    ``meetings.last_live_extraction_end_ms``.
+
+    Provider-routing: like ``live_summary``, this entrypoint always
+    uses the Anthropic tool-use runtime. The OpenAI dispatcher does
+    not currently host a bounded-tool live extraction loop.
+    """
+    from .runtime import run_live_extraction as _run_live_extraction
+
+    return _run_live_extraction(meeting_id, since_ms)
 
 
 def workspace_qa(workspace_id: str, question: str) -> dict:

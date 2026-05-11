@@ -103,6 +103,10 @@ async def create_live_meeting(
     # no running event loop (e.g., a sync test client) so we don't have
     # to special-case test wiring here.
     live_extraction.start_for(meeting.id)
+    # Wave 6.4: same cadence, separate tick — drives the
+    # ``live-meeting-extraction`` skill over the SINCE-marked window
+    # and creates draft cards.
+    live_extraction.start_extraction_for(meeting.id)
     return {
         "artifact_id": artifact.id,
         "meeting_id": meeting.id,
@@ -220,9 +224,12 @@ async def end_live_meeting(meeting_id: str, session: Session = Depends(get_sessi
     if meeting.status == "live":
         meeting.status = "ready"
         session.commit()
-    # Wave 6.3: tear down the agent loop. Safe to call even if no task
-    # was ever started (idle no-op).
+    # Wave 6.3 + 6.4: tear down both agent loops. Safe to call even if
+    # no task was ever started (idle no-op). The standard finalize
+    # chain at /end runs the consolidation pass which dedupes any
+    # cards that the live-extraction overlap window emitted twice.
     live_extraction.stop_for(meeting_id)
+    live_extraction.stop_extraction_for(meeting_id)
     return {"meeting_id": meeting_id, "status": meeting.status}
 
 
@@ -278,6 +285,63 @@ def list_segments(
             }
             for r in rows
         ],
+    }
+
+
+@router.get("/api/live-meetings/{meeting_id}/draft-cards")
+def list_live_draft_cards(
+    meeting_id: str,
+    since_iso: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """Wave 6.4: poll for cards created by the live extraction tick.
+
+    Returns visible (non-hidden) memory cards for the meeting in
+    creation order. The ``since_iso`` query param (UTC ISO 8601) lets
+    a polling caller skip cards it already has — server-side filter is
+    on ``created_at > since``.
+
+    The response shape mirrors the existing
+    ``/api/meetings/{id}/memory-cards`` list endpoint so the frontend
+    can reuse the same MemoryCard rendering.
+    """
+    from datetime import datetime
+
+    from storage_router.models.db import MemoryCardRow
+    from storage_router.api.memory_cards_route import _row_to_card
+
+    meeting = session.get(MeetingRow, meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="meeting not found")
+
+    q = (
+        select(MemoryCardRow)
+        .where(MemoryCardRow.meeting_id == meeting_id)
+        .where(MemoryCardRow.hidden_at.is_(None))
+        .order_by(MemoryCardRow.created_at, MemoryCardRow.id)
+    )
+    if since_iso is not None:
+        try:
+            since_dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": {
+                        "code": "bad_since",
+                        "message": (
+                            "since_iso must be ISO 8601 (e.g., "
+                            "2026-05-11T12:34:56Z)"
+                        ),
+                    }
+                },
+            ) from None
+        q = q.where(MemoryCardRow.created_at > since_dt)
+    rows = list(session.execute(q).scalars().all())
+    return {
+        "meeting_id": meeting_id,
+        "status": meeting.status,
+        "items": [_row_to_card(r).model_dump(mode="json") for r in rows],
     }
 
 

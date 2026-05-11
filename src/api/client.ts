@@ -150,6 +150,16 @@ export type LiveSummaryResponse = {
   summary: string | null;
 };
 
+export type LiveDraftCardsResponse = {
+  meeting_id: string;
+  status: string;
+  /** MemoryCard rows in creation order. The wire field name is
+   * ``speakers_json``; we normalise to ``speakers`` so the existing
+   * ``MemoryCardItem`` component can consume the result without a
+   * second adapter. */
+  items: MemoryCard[];
+};
+
 export type LiveChunkAccepted = {
   seq: number;
   segments_added: number;
@@ -210,6 +220,35 @@ export async function getLiveSummary(
     `/api/live-meetings/${meetingId}/summary`,
   );
   return res.data;
+}
+
+/**
+ * Wave 6.4: poll for memory cards created by the live extraction tick.
+ *
+ * Pass ``sinceIso`` (the latest ``created_at`` you've already seen) to
+ * skip rows you already rendered. Server-side filter is on
+ * ``created_at > since`` so the first call (with ``sinceIso=null``)
+ * returns everything.
+ */
+export async function listLiveDraftCards(
+  meetingId: string,
+  sinceIso: string | null = null,
+): Promise<LiveDraftCardsResponse> {
+  type RawCard = MemoryCard & { speakers_json?: string[] | null };
+  const res = await api.get<{
+    meeting_id: string;
+    status: string;
+    items: RawCard[];
+  }>(`/api/live-meetings/${meetingId}/draft-cards`, {
+    params: sinceIso ? { since_iso: sinceIso } : undefined,
+  });
+  // Mirror the normalisation that ``listMeetingCards`` does so callers
+  // can rely on the ``speakers`` field shape.
+  const items: MemoryCard[] = res.data.items.map((card) => ({
+    ...card,
+    speakers: card.speakers ?? card.speakers_json ?? [],
+  }));
+  return { ...res.data, items };
 }
 
 export type CardSearchHit = {
