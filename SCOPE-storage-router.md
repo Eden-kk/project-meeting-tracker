@@ -64,4 +64,3 @@ means "normalized transcript persisted; no extraction yet."
 5. Implement GET /api/meetings/{id}
 6. Implement GET /api/meetings/{id}/transcript (returns 409 until ready)
 7. Integration test: POST a fixture transcript → poll meeting → fetch transcript → matches expected_normalized.json
-```

@@ -1,13 +1,24 @@
+# Python (storage-router, future voice-ingest, transcript-ingest)
 .venv/
 var/
 __pycache__/
 .pytest_cache/
 *.pyc
+*.pyo
 .env
 .env.local
-.claude/
+.env*.local
 .coverage
 .ruff_cache/
 *.egg-info/
 build/
+
+# Node / Vite (frontend)
+node_modules/
 dist/
+playwright-report/
+test-results/
+coverage/
+
+# Editor / tooling
+.claude/
