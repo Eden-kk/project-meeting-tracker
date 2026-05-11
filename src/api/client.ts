@@ -139,7 +139,15 @@ export type LiveSegment = {
 export type LiveSegmentsResponse = {
   meeting_id: string;
   status: string;
+  /** Wave 6.3: rolling agent summary (NULL until the first ~120s tick fires). */
+  live_summary: string | null;
   segments: LiveSegment[];
+};
+
+export type LiveSummaryResponse = {
+  meeting_id: string;
+  status: string;
+  summary: string | null;
 };
 
 export type LiveChunkAccepted = {
@@ -185,6 +193,21 @@ export async function listLiveSegments(
   const res = await api.get<LiveSegmentsResponse>(
     `/api/live-meetings/${meetingId}/segments`,
     { params: sinceId ? { since_id: sinceId } : undefined },
+  );
+  return res.data;
+}
+
+/**
+ * Wave 6.3: standalone read of the rolling agent summary. The same
+ * value is bundled into the segments-poll response, so most callers
+ * only need this when they want to refresh the summary without paying
+ * the segments-list cost.
+ */
+export async function getLiveSummary(
+  meetingId: string,
+): Promise<LiveSummaryResponse> {
+  const res = await api.get<LiveSummaryResponse>(
+    `/api/live-meetings/${meetingId}/summary`,
   );
   return res.data;
 }

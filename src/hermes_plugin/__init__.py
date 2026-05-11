@@ -22,6 +22,7 @@ __all__ = [
     "meeting_qa",
     "followup_draft",
     "workspace_qa",
+    "live_summary",
 ]
 
 
@@ -182,6 +183,25 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
         meeting_id=meeting_id,
         user_question=question,
     )
+
+
+def live_summary(meeting_id: str) -> dict:
+    """Storage-router-facing entrypoint for the Wave 6.3 live summary tick.
+
+    Drives the ``live-meeting-summary`` skill against the transcript-so-far
+    of a meeting whose status is currently ``live``. Returns
+    ``{"summary": str, "iterations": int}`` — the caller persists the
+    summary to ``meetings.live_summary``.
+
+    Provider-routing: this entrypoint always uses the Anthropic tool-use
+    runtime because the bounded-tool budget skill loop requires it. If
+    ``LLM_PROVIDER=openai`` is configured, the live scheduler should
+    skip calling this (the OpenAI dispatcher does not currently host
+    a bounded-tool live summary loop).
+    """
+    from .runtime import run_live_summary as _run_live_summary
+
+    return _run_live_summary(meeting_id)
 
 
 def workspace_qa(workspace_id: str, question: str) -> dict:

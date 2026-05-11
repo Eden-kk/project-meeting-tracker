@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from storage_router import ingest_adapter_http, storage
+from storage_router import ingest_adapter_http, live_extraction, storage
 from storage_router.db import get_session
 from storage_router.ids import new_id
 from storage_router.models.db import (
@@ -73,7 +73,7 @@ def _next_chunk_seq(meeting_id: str) -> int:
 
 
 @router.post("/api/live-meetings", status_code=201)
-def create_live_meeting(
+async def create_live_meeting(
     workspace_id: str = Form(...),
     title: str = Form("Live meeting"),
     session: Session = Depends(get_session),
@@ -98,6 +98,11 @@ def create_live_meeting(
         )
     )
     session.commit()
+    # Wave 6.3: spin up the periodic agent loop that refreshes the
+    # rolling summary every ~120s. ``start_for`` is a no-op if there is
+    # no running event loop (e.g., a sync test client) so we don't have
+    # to special-case test wiring here.
+    live_extraction.start_for(meeting.id)
     return {
         "artifact_id": artifact.id,
         "meeting_id": meeting.id,
@@ -196,7 +201,7 @@ async def receive_chunk(
 
 
 @router.post("/api/live-meetings/{meeting_id}/end")
-def end_live_meeting(meeting_id: str, session: Session = Depends(get_session)):
+async def end_live_meeting(meeting_id: str, session: Session = Depends(get_session)):
     """Flip the meeting from ``live`` -> ``ready``.
 
     The downstream finalize/extract pipeline runs on its own cadence; this
@@ -215,6 +220,9 @@ def end_live_meeting(meeting_id: str, session: Session = Depends(get_session)):
     if meeting.status == "live":
         meeting.status = "ready"
         session.commit()
+    # Wave 6.3: tear down the agent loop. Safe to call even if no task
+    # was ever started (idle no-op).
+    live_extraction.stop_for(meeting_id)
     return {"meeting_id": meeting_id, "status": meeting.status}
 
 
@@ -252,6 +260,10 @@ def list_segments(
     return {
         "meeting_id": meeting_id,
         "status": meeting.status,
+        # Wave 6.3: bundle the rolling summary into the segments response
+        # so the frontend can pick it up on the same 2s poll without a
+        # second round-trip. NULL until the first agent tick succeeds.
+        "live_summary": meeting.live_summary,
         "segments": [
             {
                 "segment_id": r.id,
@@ -266,4 +278,23 @@ def list_segments(
             }
             for r in rows
         ],
+    }
+
+
+@router.get("/api/live-meetings/{meeting_id}/summary")
+def get_live_summary(meeting_id: str, session: Session = Depends(get_session)):
+    """Return the most recent rolling summary for a live meeting.
+
+    Wave 6.3: a thin read endpoint that returns whatever the periodic
+    agent loop last wrote to ``meetings.live_summary``. The frontend
+    can either poll this on its own cadence or read the summary that
+    is now bundled into ``GET /segments`` — both surface the same value.
+    """
+    meeting = session.get(MeetingRow, meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="meeting not found")
+    return {
+        "meeting_id": meeting_id,
+        "status": meeting.status,
+        "summary": meeting.live_summary,
     }
