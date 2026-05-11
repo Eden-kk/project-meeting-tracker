@@ -1,6 +1,10 @@
 openapi: 3.0.3
 info:
+<<<<<<< HEAD
   title: Tracker API — Phase 3 surface
+=======
+  title: Tracker API — Phase 1 surface
+>>>>>>> origin/main
   version: 0.5.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
@@ -199,12 +203,27 @@ paths:
       description: |
         Runs `hermes_plugin.meeting_finalization`, persists returned cards as
         `draft` MemoryCards, marks the meeting `finalized`, and returns a summary.
-        Synchronous in Phase 2; long-running calls block.
+        Synchronous in Phase 2; long-running calls block. For timestamped
+        transcripts the plugin chunks the meeting into `chunk_minutes`-sized
+        windows and runs one Claude pass per window so long meetings don't
+        exceed the model context budget.
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: string }
+        - in: query
+          name: chunk_minutes
+          required: false
+          description: |
+            Time-window size (in minutes) used by the chunked extractor.
+            Out-of-range values return 422. Untimestamped transcripts fall
+            back to single-pass finalization regardless of this value.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 5
       responses:
         '200':
           description: OK
@@ -435,6 +454,13 @@ components:
         finalized_at:  { type: string, format: date-time }
         cards_created: { type: integer, minimum: 0 }
         summary:       { type: string }
+        chunks_processed:
+          type: integer
+          minimum: 0
+          default: 1
+          description: |
+            Number of transcript chunks the chunked extractor processed.
+            Defaults to 1 for the legacy single-pass finalization path.
 
     QARequest:
       type: object
@@ -446,19 +472,21 @@ components:
 
     QAEvidenceItem:
       type: object
-      required: [chunk_id, text]
+      required: [segment_id, speaker, text]
       properties:
-        chunk_id:      { type: string }
+        segment_id:    { type: string }
+        speaker:       { type: string }
         text:          { type: string }
-        speaker:       { type: string, nullable: true }
-        start_ms:      { type: integer, minimum: 0, nullable: true }
-        end_ms:        { type: integer, minimum: 0, nullable: true }
+        start_ms:      { type: integer, default: 0, minimum: 0 }
+        end_ms:        { type: integer, default: 0, minimum: 0 }
 
     QAResponse:
       type: object
-      required: [answer, evidence]
+      required: [answer, citations, weak_evidence]
       properties:
-        answer:   { type: string }
-        evidence:
+        answer:        { type: string }
+        confidence:    { type: number, default: 0.85, minimum: 0.0, maximum: 1.0 }
+        citations:
           type: array
           items: { $ref: '#/components/schemas/QAEvidenceItem' }
+        weak_evidence: { type: boolean, default: false }
