@@ -7,6 +7,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/meetings', label: 'Meetings' },
   { to: '/import', label: 'Import' },
   { to: '/live', label: 'Live' },
+  { to: '/action-items', label: 'Action items' },
 ];
 const SECONDARY_ITEMS: NavItem[] = [{ to: '/settings', label: 'Settings' }];
 
