@@ -1,9 +1,29 @@
+# Python
 .venv/
+var/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
-models/
-.pytest_cache/
-*.egg-info/
+.env
+.env.local
+.env*.local
 .coverage
+.ruff_cache/
+*.egg-info/
+build/
 htmlcov/
+
+# Voice-ingest specifics (Whisper model cache + audio scratch)
+models/
+audio_scratch/
+
+# Node / Vite (frontend on main)
+node_modules/
+dist/
+playwright-report/
+test-results/
+coverage/
+
+# Editor / tooling
+.claude/
