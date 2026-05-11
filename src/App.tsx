@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import HomePage from './pages/HomePage';
 import ImportPage from './pages/ImportPage';
 import ProcessingPage from './pages/ProcessingPage';
 import MeetingReviewPage from './pages/MeetingReviewPage';
@@ -10,9 +11,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<SidebarShell />}>
-          {/* Stage 1: dual-mount ImportPage at / and /import so existing tests stay green.
-              Stage 4 flips / to HomePage and removes this duplicate. */}
-          <Route path="/" element={<ImportPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/import" element={<ImportPage />} />
           <Route path="/meetings/:id/processing" element={<ProcessingPage />} />
           <Route path="/meetings/:id" element={<MeetingReviewPage />} />
