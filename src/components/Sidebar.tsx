@@ -5,6 +5,7 @@ type NavItem = { to: string; label: string; end?: boolean };
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Home', end: true },
   { to: '/meetings', label: 'Meetings' },
+  { to: '/ask', label: 'Ask Hermes' },
   { to: '/import', label: 'Import' },
   { to: '/live', label: 'Live' },
   { to: '/action-items', label: 'Action items' },

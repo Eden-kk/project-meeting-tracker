@@ -20,7 +20,11 @@ __all__ = [
     "TOOL_REGISTRY",
     "meeting_finalization",
     "meeting_qa",
+<<<<<<< HEAD
     "followup_draft",
+=======
+    "workspace_qa",
+>>>>>>> origin/feat/p6-global-ask-hermes
 ]
 
 
@@ -144,6 +148,22 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
     return _run_skill(
         skill_name="meeting-qa",
         meeting_id=meeting_id,
+        user_question=question,
+    )
+
+
+def workspace_qa(workspace_id: str, question: str) -> dict:
+    """Storage-router-facing entrypoint for /api/qa/workspace (Wave 4.3).
+
+    Drives the `workspace-qa` skill which is bound to the two
+    cross-meeting search tools. Citations come back as
+    ``[meeting:<id>:card:<id>]`` or ``[meeting:<id>:seg:<id>]``.
+    """
+    from .llm import run_skill as _run_skill
+
+    return _run_skill(
+        skill_name="workspace-qa",
+        workspace_id=workspace_id,
         user_question=question,
     )
 

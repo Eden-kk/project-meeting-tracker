@@ -23,6 +23,9 @@ from storage_router.models.memory_cards import (
     QAEvidenceItem,
     QARequest,
     QAResponse,
+    WorkspaceQACitation,
+    WorkspaceQARequest,
+    WorkspaceQAResponse,
 )
 
 router = APIRouter()
@@ -155,6 +158,122 @@ def qa_meeting(body: QARequest, session: Session = Depends(get_session)):
         answer=answer_text,
         confidence=0.4 if weak_evidence else 0.85,
         citations=[QAEvidenceItem(**c) for c in citations],
+        weak_evidence=weak_evidence,
+    ).model_dump(mode="json")
+
+
+@router.post("/api/qa/workspace")
+def qa_workspace(body: WorkspaceQARequest, session: Session = Depends(get_session)):
+    """Wave 4.3: workspace-wide Hermes QA.
+
+    Hermes drives the answer via the `workspace-qa` skill, which is bound
+    to `search_workspace_transcripts` + `search_workspace_cards`. The
+    skill emits inline citations in the form `[meeting:<id>:card:<id>]`
+    or `[meeting:<id>:seg:<id>]`; this route parses them so the SPA can
+    render deep links.
+    """
+    import json as _json
+    import re
+
+    from storage_router.models.db import MemoryCardRow, SpeakerSegmentRow
+
+    try:
+        result = hermes_runtime.run_workspace_qa(body.workspace_id, body.question)
+    except hermes_runtime.HermesUnavailable as e:
+        return _hermes_unavailable(e)
+
+    answer_text = result.get("final_text") or result.get("answer", "")
+
+    weak_evidence = False
+    try:
+        parsed_refusal = _json.loads(answer_text)
+        if isinstance(parsed_refusal, dict) and parsed_refusal.get("refused"):
+            weak_evidence = True
+    except Exception:
+        pass
+
+    # Parse all citation patterns:
+    #   [meeting:<mid>:card:<cid>]
+    #   [meeting:<mid>:seg:<sid>]
+    seen: set[tuple[str, str, str]] = set()
+    citations: list[WorkspaceQACitation] = []
+    card_re = re.compile(r"\[meeting:([^:\]]+):card:([^\]]+)\]")
+    seg_re = re.compile(r"\[meeting:([^:\]]+):seg:([^\]]+)\]")
+
+    # Pre-resolve meeting titles for the meetings we'll cite.
+    meeting_ids: set[str] = set()
+    for m in card_re.finditer(answer_text):
+        meeting_ids.add(m.group(1))
+    for m in seg_re.finditer(answer_text):
+        meeting_ids.add(m.group(1))
+    title_by_meeting: dict[str, str] = {}
+    if meeting_ids:
+        rows = (
+            session.query(MeetingRow)
+            .filter(MeetingRow.id.in_(meeting_ids))
+            .all()
+        )
+        title_by_meeting = {r.id: (r.title or "") for r in rows}
+
+    # Cards
+    card_ids = [m.group(2) for m in card_re.finditer(answer_text)]
+    card_by_id: dict[str, MemoryCardRow] = {}
+    if card_ids:
+        card_rows = (
+            session.query(MemoryCardRow)
+            .filter(MemoryCardRow.id.in_(card_ids))
+            .all()
+        )
+        card_by_id = {r.id: r for r in card_rows}
+    for m in card_re.finditer(answer_text):
+        mid, cid = m.group(1), m.group(2)
+        key = ("card", mid, cid)
+        if key in seen:
+            continue
+        seen.add(key)
+        row = card_by_id.get(cid)
+        citations.append(
+            WorkspaceQACitation(
+                meeting_id=mid,
+                meeting_title=title_by_meeting.get(mid, ""),
+                memory_card_id=cid,
+                snippet=(row.title if row is not None else ""),
+            )
+        )
+
+    # Segments
+    seg_ids = [m.group(2) for m in seg_re.finditer(answer_text)]
+    seg_by_id: dict[str, SpeakerSegmentRow] = {}
+    if seg_ids:
+        seg_rows = (
+            session.query(SpeakerSegmentRow)
+            .filter(SpeakerSegmentRow.id.in_(seg_ids))
+            .all()
+        )
+        seg_by_id = {r.id: r for r in seg_rows}
+    for m in seg_re.finditer(answer_text):
+        mid, sid = m.group(1), m.group(2)
+        key = ("seg", mid, sid)
+        if key in seen:
+            continue
+        seen.add(key)
+        row = seg_by_id.get(sid)
+        citations.append(
+            WorkspaceQACitation(
+                meeting_id=mid,
+                meeting_title=title_by_meeting.get(mid, ""),
+                segment_id=sid,
+                snippet=(row.text if row is not None else "")[:240],
+            )
+        )
+
+    if not citations and not weak_evidence:
+        weak_evidence = True
+
+    return WorkspaceQAResponse(
+        answer=answer_text,
+        confidence=0.4 if weak_evidence else 0.75,
+        citations=citations,
         weak_evidence=weak_evidence,
     ).model_dump(mode="json")
 

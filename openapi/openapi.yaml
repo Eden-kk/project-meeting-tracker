@@ -443,13 +443,44 @@ paths:
         '422':
           description: Validation error
 
+  /api/qa/workspace:
+    post:
+      summary: Ask a question across every meeting in a workspace (Wave 4.3)
+      description: |
+        Hermes drives the answer via the `workspace-qa` skill, which is
+        bound to `search_workspace_transcripts` + `search_workspace_cards`.
+        The skill emits inline citations in the form
+        `[meeting:<id>:card:<id>]` or `[meeting:<id>:seg:<id>]`; this
+        route parses them out of the final answer so the SPA can render
+        deep links.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceQARequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceQAResponse'
+        '422':
+          description: Validation error
+        '503':
+          description: Hermes plugin unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HermesUnavailable'
+
   # --- Phase 2+ endpoints not yet defined in this spec --------------------
   # POST /api/live-meetings/start
   # POST /api/live-meetings/{id}/audio-frame
   # POST /api/live-meetings/{id}/stop
   # POST /api/zoom/rtms/webhook
   # GET  /api/meetings/{id}/chunks
-  # POST /api/qa/global
   # GET  /api/hermes/live-meetings/{id}/state
   # GET  /api/hermes/meetings/{id}/recent-chunks
   # POST /api/hermes/meetings/{id}/pattern
@@ -745,3 +776,34 @@ components:
           type: array
           items: { $ref: '#/components/schemas/CardSearchHit' }
         total: { type: integer, minimum: 0 }
+
+    WorkspaceQARequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, question]
+      properties:
+        workspace_id: { type: string, minLength: 1 }
+        question:     { type: string, minLength: 1, maxLength: 4000 }
+
+    WorkspaceQACitation:
+      type: object
+      additionalProperties: false
+      required: [meeting_id]
+      properties:
+        meeting_id:     { type: string }
+        meeting_title:  { type: string, default: "" }
+        memory_card_id: { type: string, nullable: true }
+        segment_id:     { type: string, nullable: true }
+        snippet:        { type: string, default: "" }
+
+    WorkspaceQAResponse:
+      type: object
+      additionalProperties: false
+      required: [answer, citations, weak_evidence]
+      properties:
+        answer:        { type: string }
+        confidence:    { type: number, default: 0.6, minimum: 0.0, maximum: 1.0 }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/WorkspaceQACitation' }
+        weak_evidence: { type: boolean, default: false }

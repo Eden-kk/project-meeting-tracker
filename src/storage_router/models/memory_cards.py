@@ -107,6 +107,38 @@ class QAResponse(BaseModel):
     weak_evidence: bool = False
 
 
+# Wave 4.3 — workspace-wide QA shapes.
+
+
+class WorkspaceQARequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1, max_length=4000)
+
+
+class WorkspaceQACitation(BaseModel):
+    """Cross-meeting citation. One of `memory_card_id` or `segment_id` is
+    populated depending on whether the answer came from a card or a
+    raw transcript segment. The frontend uses the populated id +
+    `meeting_id` to build a deep link.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    meeting_id: str
+    meeting_title: str = ""
+    memory_card_id: str | None = None
+    segment_id: str | None = None
+    snippet: str = ""
+
+
+class WorkspaceQAResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer: str
+    confidence: float = Field(0.6, ge=0.0, le=1.0)
+    citations: list[WorkspaceQACitation] = Field(default_factory=list)
+    weak_evidence: bool = False
+
+
 __all__ = [
     "FinalizeResponse",
     "MemoryCardConfidencePatch",
@@ -118,4 +150,7 @@ __all__ = [
     "QARequest",
     "QAResponse",
     "SupersedeResponse",
+    "WorkspaceQACitation",
+    "WorkspaceQARequest",
+    "WorkspaceQAResponse",
 ]
