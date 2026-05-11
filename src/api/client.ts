@@ -145,3 +145,45 @@ export async function searchTranscripts(
   });
   return res.data;
 }
+
+export type CardSearchHit = {
+  memory_card_id: string;
+  meeting_id: string;
+  meeting_title: string;
+  type: MemoryCardType;
+  title: string;
+  content: string;
+  confidence: number;
+  source_start_ms: number | null;
+  source_end_ms: number | null;
+  snippet: string;
+  rank: number;
+};
+
+export type CardSearchResponse = {
+  items: CardSearchHit[];
+  total: number;
+};
+
+export type SearchCardsParams = {
+  q: string;
+  workspace_id?: string;
+  type?: MemoryCardType;
+  limit?: number;
+  offset?: number;
+};
+
+export async function searchCards(
+  params: SearchCardsParams,
+): Promise<CardSearchResponse> {
+  const res = await api.get<CardSearchResponse>('/api/search/cards', {
+    params: {
+      q: params.q,
+      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      type: params.type,
+      limit: params.limit,
+      offset: params.offset,
+    },
+  });
+  return res.data;
+}
