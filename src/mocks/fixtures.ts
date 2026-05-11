@@ -1,5 +1,5 @@
 import expectedNormalizedJson from '../../fixtures/expected_normalized.json';
-import type { Meeting, NormalizedTranscript } from '../api/client';
+import type { Meeting, MeetingsList, NormalizedTranscript } from '../api/client';
 
 export const expectedNormalized = expectedNormalizedJson as NormalizedTranscript;
 
@@ -19,4 +19,11 @@ export function makeFixtureMeeting(
     current_schema: null,
     evidence_quality: 'medium',
   };
+}
+
+export function makeFixtureMeetingsList(count: number = 3): MeetingsList {
+  const items: Meeting[] = Array.from({ length: count }, (_, i) =>
+    makeFixtureMeeting(`m_lib_${i}`, `art_lib_${i}`, `Library meeting ${i}`),
+  );
+  return { items, total: items.length };
 }
