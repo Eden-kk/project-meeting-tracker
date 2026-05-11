@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
@@ -31,6 +32,12 @@ def _ensure_dev_seed() -> None:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Tracker storage-router", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?|https://[a-z0-9-]+\.trycloudflare\.com",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.blob_store = LocalFsBlobStore(settings.blob_store_dir)
 
     @app.on_event("startup")
