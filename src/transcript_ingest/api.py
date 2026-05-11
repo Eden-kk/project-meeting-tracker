@@ -11,11 +11,17 @@ Error contract:
 from __future__ import annotations
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse
 from jsonschema import ValidationError
 
 from .orchestrator import parse_transcript
 
 app = FastAPI(title="transcript-ingest", version="0.1.0")
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz")
