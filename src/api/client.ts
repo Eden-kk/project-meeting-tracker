@@ -1,6 +1,26 @@
 import axios from 'axios';
 import type { components } from './types';
 import { DEV_WORKSPACE_ID } from '../lib/constants';
+import type {
+  AskHermesInput,
+  AskHermesResponse,
+  CreateMemoryCardInput,
+  EvidenceCitation,
+  FinalizeMeetingResponse,
+  MemoryCard,
+  MemoryCardListResponse,
+  MemoryCardState,
+  MemoryCardType,
+  PatchMemoryCardInput,
+} from './memory_cards.types';
+
+export type {
+  AskHermesResponse,
+  EvidenceCitation,
+  MemoryCard,
+  MemoryCardState,
+  MemoryCardType,
+};
 
 export type ImportAccepted = components['schemas']['ImportAccepted'];
 export type Meeting = components['schemas']['Meeting'];
@@ -51,5 +71,56 @@ export async function getMeetingTranscript(id: string): Promise<NormalizedTransc
 
 export async function listMeetings(params: ListMeetingsParams): Promise<MeetingsList> {
   const res = await api.get<MeetingsList>('/api/meetings', { params });
+  return res.data;
+}
+
+export type ListMeetingCardsFilters = {
+  state?: MemoryCardState;
+  type?: MemoryCardType;
+};
+
+export async function listMeetingCards(
+  meetingId: string,
+  filters?: ListMeetingCardsFilters,
+): Promise<MemoryCardListResponse> {
+  const res = await api.get<MemoryCardListResponse>(
+    `/api/meetings/${meetingId}/memory-cards`,
+    { params: filters },
+  );
+  return res.data;
+}
+
+export async function createMemoryCard(input: CreateMemoryCardInput): Promise<MemoryCard> {
+  const res = await api.post<MemoryCard>('/api/memory-cards', input);
+  return res.data;
+}
+
+export async function patchMemoryCard(
+  id: string,
+  input: PatchMemoryCardInput,
+): Promise<MemoryCard> {
+  const res = await api.patch<MemoryCard>(`/api/memory-cards/${id}`, input);
+  return res.data;
+}
+
+export async function commitCard(id: string): Promise<MemoryCard> {
+  const res = await api.post<{ card: MemoryCard }>(`/api/memory-cards/${id}/commit`);
+  return res.data.card;
+}
+
+export async function rejectCard(id: string): Promise<MemoryCard> {
+  const res = await api.post<{ card: MemoryCard }>(`/api/memory-cards/${id}/reject`);
+  return res.data.card;
+}
+
+export async function finalizeMeeting(meetingId: string): Promise<FinalizeMeetingResponse> {
+  const res = await api.post<FinalizeMeetingResponse>(
+    `/api/meetings/${meetingId}/finalize`,
+  );
+  return res.data;
+}
+
+export async function askHermes(input: AskHermesInput): Promise<AskHermesResponse> {
+  const res = await api.post<AskHermesResponse>('/api/qa/meeting', input);
   return res.data;
 }

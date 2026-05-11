@@ -43,6 +43,7 @@ describe('MeetingReviewPage', () => {
     vi.spyOn(client, 'getMeetingTranscript').mockResolvedValue(
       expectedNormalized as NormalizedTranscript,
     );
+    vi.spyOn(client, 'listMeetingCards').mockResolvedValue({ items: [], total: 0 });
   });
 
   it('renders all fixture segments in Transcript tab', async () => {
@@ -51,15 +52,15 @@ describe('MeetingReviewPage', () => {
     expect(rows).toHaveLength(expectedNormalized.segments.length);
   });
 
-  it('disabled tabs have aria-disabled and correct tooltip', async () => {
+  it('only Share / Export remains disabled; Memory and Ask are active', async () => {
     renderAt('/meetings/m_fixture001');
-    const memory = await screen.findByRole('tab', { name: /memory cards/i });
-    expect(memory).toHaveAttribute('aria-disabled', 'true');
-    expect(memory).toHaveAttribute('title', 'Arrives in Phase 2');
-    const ask = screen.getByRole('tab', { name: /ask hermes/i });
-    expect(ask).toHaveAttribute('title', 'Arrives in Phase 7');
-    const share = screen.getByRole('tab', { name: /share \/ export/i });
+    const share = await screen.findByRole('tab', { name: /share \/ export/i });
+    expect(share).toHaveAttribute('aria-disabled', 'true');
     expect(share).toHaveAttribute('title', 'Arrives in Phase 8');
+    const memory = screen.getByRole('tab', { name: /memory cards/i });
+    expect(memory).not.toHaveAttribute('aria-disabled', 'true');
+    const ask = screen.getByRole('tab', { name: /ask hermes/i });
+    expect(ask).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('Summary tab shows placeholder copy', async () => {

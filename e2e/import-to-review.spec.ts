@@ -20,7 +20,10 @@ test('import → processing → review happy path', async ({ page }) => {
   const rows = page.getByTestId('transcript-row');
   await expect(rows).toHaveCount(6);
 
-  for (const name of [/memory cards/i, /ask hermes/i, /share \/ export/i]) {
-    await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-disabled', 'true');
-  }
+  // Phase 2: only Share / Export remains disabled; Memory Cards + Ask Hermes
+  // are activated by worktree H (memory-cards-frontend).
+  await expect(page.getByRole('tab', { name: /share \/ export/i })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
 });
