@@ -79,6 +79,7 @@ class MemoryCard(BaseModel):
     confidence: float = Field(ge=0, le=1)
     hidden_at: Optional[str] = None
     superseded_by_id: Optional[str] = None
+    audit_reason: Optional[str] = None
     created_by_agent: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -136,6 +137,44 @@ class FinalizeMeetingMemoryInput(BaseModel):
     meeting_id: str = Field(min_length=1)
 
 
+class UpdateCardConfidenceInput(BaseModel):
+    """Wave 2.1 audit-pass tool: downgrade a card's confidence in place."""
+
+    model_config = ConfigDict(extra="forbid")
+    card_id: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+UpdateCardConfidenceOutput = MemoryCard
+
+
+class HideCardInput(BaseModel):
+    """Wave 2.1 audit-pass tool: soft-delete a card unsupported by evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+    card_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+HideCardOutput = MemoryCard
+
+
+class SupersedeCardInput(BaseModel):
+    """Wave 2.2 consolidation-pass tool: merge `loser` into `winner`."""
+
+    model_config = ConfigDict(extra="forbid")
+    loser_id: str = Field(min_length=1)
+    winner_id: str = Field(min_length=1)
+
+
+class SupersedeCardOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    loser_id: str
+    winner_id: str
+    winner_source_chunk_ids: list[str]
+
+
 class FinalizeMeetingMemoryOutput(BaseModel):
     """Cross-worktree contract with worktree G (memory-cards-backend).
 
@@ -156,6 +195,9 @@ TOOL_JSON_SCHEMAS: dict[str, dict] = {
     "search_memory_cards": SearchMemoryCardsInput.model_json_schema(),
     "create_draft_memory_card": CreateDraftMemoryCardInput.model_json_schema(),
     "finalize_meeting_memory": FinalizeMeetingMemoryInput.model_json_schema(),
+    "update_card_confidence": UpdateCardConfidenceInput.model_json_schema(),
+    "hide_card": HideCardInput.model_json_schema(),
+    "supersede_card": SupersedeCardInput.model_json_schema(),
 }
 
 
@@ -173,5 +215,11 @@ __all__ = [
     "CreateDraftMemoryCardOutput",
     "FinalizeMeetingMemoryInput",
     "FinalizeMeetingMemoryOutput",
+    "UpdateCardConfidenceInput",
+    "UpdateCardConfidenceOutput",
+    "HideCardInput",
+    "HideCardOutput",
+    "SupersedeCardInput",
+    "SupersedeCardOutput",
     "TOOL_JSON_SCHEMAS",
 ]

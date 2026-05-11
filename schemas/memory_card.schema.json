@@ -60,6 +60,10 @@
       "type": ["string", "null"],
       "description": "If set, points at the canonical winner card from the agent consolidation pass."
     },
+    "audit_reason": {
+      "type": ["string", "null"],
+      "description": "Free-text rationale set by the agent audit pass when it downgrades or hides a card."
+    },
     "created_by_agent": { "type": "string" },
     "created_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" }

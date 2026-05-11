@@ -67,6 +67,28 @@ def meeting_finalization(
         legacy.setdefault("chunks_processed", 1)
         legacy.setdefault("cards_created", 0)
         legacy.setdefault("summary", legacy.get("final_text", "") or "")
+
+    # Wave 2.1/2.2: chain the agent-quality passes after the legacy
+    # single-pass finalize so untimestamped imports also benefit.
+    # Best-effort: failures here don't blow away the extracted cards.
+    from .runtime import (  # local import to keep `import hermes_plugin` cheap
+        SKILLS_DIR as _SKILLS_DIR,
+        run_card_audit as _run_audit,
+        run_card_consolidation as _run_consolidation,
+    )
+    try:
+        legacy["audit"] = _run_audit(meeting_id, client=storage_client)
+    except Exception:  # noqa: BLE001
+        legacy.setdefault("audit", None)
+    if (_SKILLS_DIR / "meeting-card-consolidation" / "SKILL.md").is_file():
+        try:
+            legacy["consolidation"] = _run_consolidation(
+                meeting_id, client=storage_client
+            )
+        except Exception:  # noqa: BLE001
+            legacy.setdefault("consolidation", None)
+    else:
+        legacy.setdefault("consolidation", None)
     return legacy
 
 

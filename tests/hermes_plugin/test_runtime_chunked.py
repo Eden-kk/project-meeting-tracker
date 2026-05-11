@@ -16,7 +16,6 @@ from .conftest import make_message
 _VALID_CARD = {
     "memory_card_id": "mc_x",
     "meeting_id": "m_long001",
-    "state": "draft",
     "type": "decision",
     "title": "t",
     "content": "c",
@@ -84,6 +83,20 @@ def _summary_turn(text: str = "Line1\nLine2\nLine3\nLine4\nLine5") -> dict:
     )
 
 
+def _noop_audit_turn() -> dict:
+    """Wave 2.1 audit pass: minimal end_turn that makes no tool calls.
+
+    The runtime always invokes the audit pass after extraction; tests
+    that don't care about audit specifics script this single noop turn
+    to satisfy the loop.
+    """
+    return make_message(
+        msg_id="audit_noop",
+        content=[{"type": "text", "text": "no cards needed downgrade"}],
+        stop_reason="end_turn",
+    )
+
+
 def _three_chunk_segments() -> list[dict]:
     """Three 5-min windows with 2 segs each → chunker produces 3 chunks."""
     out: list[dict] = []
@@ -124,6 +137,9 @@ def test_chunked_happy_path_3_chunks(storage_client, fake_anthropic) -> None:
     for i in range(3):
         scripted.extend(_make_chunk_turns(i, 3, n_cards=2))
     scripted.append(_summary_turn())
+    # Wave 2.1: audit pass runs after summary. Script a noop end_turn so
+    # the runtime sees "nothing to change".
+    scripted.append(_noop_audit_turn())
 
     llm = fake_anthropic(scripted)
 
@@ -138,9 +154,14 @@ def test_chunked_happy_path_3_chunks(storage_client, fake_anthropic) -> None:
     assert result["chunks_processed"] == 3
     assert result["cards_created"] == 6
     assert result["summary"].startswith("Line1")
-    # 3 chunks (2 turns each = 6 LLM calls) + 1 summary = 7 total
-    assert len(llm.messages.calls) == 3 * 2 + 1
+    # 3 chunks (2 turns each = 6 LLM calls) + 1 summary + 1 audit = 8
+    assert len(llm.messages.calls) == 3 * 2 + 1 + 1
     assert len(posts) == 6
+    # Audit pass ran but made no changes.
+    assert result["audit"]["cards_hidden"] == 0
+    assert result["audit"]["cards_downgraded"] == 0
+    # Consolidation skill is Wave 2.2; not yet on disk in this branch.
+    assert result["consolidation"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +309,7 @@ def test_chunk_minutes_propagated_to_chunker(monkeypatch, storage_client, fake_a
     for i in range(2):
         scripted.extend(_make_chunk_turns(i, 2, n_cards=1))
     scripted.append(_summary_turn())
+    scripted.append(_noop_audit_turn())
     llm = fake_anthropic(scripted)
 
     run_chunked_extraction(

@@ -78,6 +78,33 @@ class StorageRouterClient:
     def finalize_meeting(self, meeting_id: str) -> dict:
         return self._request("POST", f"/api/meetings/{meeting_id}/finalize")
 
+    def update_card_confidence(
+        self,
+        card_id: str,
+        confidence: float,
+        reason: str | None = None,
+    ) -> dict:
+        payload: dict = {"confidence": confidence}
+        if reason is not None:
+            payload["reason"] = reason
+        return self._request(
+            "PATCH", f"/api/memory-cards/{card_id}/confidence", json=payload
+        )
+
+    def hide_card(self, card_id: str, reason: str | None = None) -> dict:
+        payload: dict = {}
+        if reason is not None:
+            payload["reason"] = reason
+        return self._request(
+            "POST", f"/api/memory-cards/{card_id}/hide", json=payload
+        )
+
+    def supersede_card(self, loser_id: str, winner_id: str) -> dict:
+        return self._request(
+            "POST",
+            f"/api/memory-cards/{loser_id}/supersede-into/{winner_id}",
+        )
+
     # --- internals ---
 
     def _request(

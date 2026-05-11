@@ -6,4 +6,7 @@ tools:
   - search_memory_cards
   - create_draft_memory_card
   - finalize_meeting_memory
+  - update_card_confidence
+  - hide_card
+  - supersede_card
 skills_dir: ./skills

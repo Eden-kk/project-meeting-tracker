@@ -217,6 +217,13 @@ class MemoryCard(BaseModel):
             "If set, points at the canonical winner card from the agent consolidation pass."
         ),
     )
+    audit_reason: str | None = Field(
+        None,
+        description=(
+            "Free-text rationale recorded by the agent audit pass when it "
+            "downgrades confidence or hides a card. Surfaced for debugging."
+        ),
+    )
     created_by_agent: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

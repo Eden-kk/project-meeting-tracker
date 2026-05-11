@@ -45,6 +45,33 @@ class MemoryCardListResponse(BaseModel):
     total: int = Field(..., ge=0)
 
 
+class MemoryCardConfidencePatch(BaseModel):
+    """Body for PATCH /api/memory-cards/{id}/confidence (audit pass)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: str | None = Field(None, max_length=2000)
+
+
+class MemoryCardHideRequest(BaseModel):
+    """Body for POST /api/memory-cards/{id}/hide (audit pass)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(None, max_length=2000)
+
+
+class SupersedeResponse(BaseModel):
+    """Response body for POST /api/memory-cards/{loser}/supersede-into/{winner}."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    loser_id: str
+    winner_id: str
+    winner_source_chunk_ids: list[str]
+
+
 class FinalizeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     meeting_id: str
@@ -82,10 +109,13 @@ class QAResponse(BaseModel):
 
 __all__ = [
     "FinalizeResponse",
+    "MemoryCardConfidencePatch",
     "MemoryCardCreate",
+    "MemoryCardHideRequest",
     "MemoryCardListResponse",
     "MemoryCardOut",
     "QAEvidenceItem",
     "QARequest",
     "QAResponse",
+    "SupersedeResponse",
 ]
