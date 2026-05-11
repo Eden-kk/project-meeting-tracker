@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useMeetings } from '../hooks/useMeetings';
-import { useDraftCardCount } from '../hooks/useDraftCardCount';
+import { useTotalCardCount } from '../hooks/useDraftCardCount';
 import { MeetingCard } from '../components/MeetingCard';
 import { StatChip } from '../components/StatChip';
 import { EmptyState } from '../components/EmptyState';
@@ -38,7 +38,7 @@ function topSource(meetings: StoredMeetingSummary[]): string {
 
 export default function HomePage() {
   const { meetings } = useMeetings();
-  const draftCount = useDraftCardCount();
+  const totalCards = useTotalCardCount();
   // Server already returns newest-first; preserve that order. For
   // registry-only entries appended on the end, secondary sort by
   // imported_at keeps recently-imported drafts near the top.
@@ -69,8 +69,8 @@ export default function HomePage() {
             />
             <StatChip label="Top source" value={topSource(meetings)} />
             <StatChip
-              label="Cards needing review"
-              value={draftCount.isLoading ? '—' : draftCount.count}
+              label="Total cards across workspace"
+              value={totalCards.isLoading ? '—' : totalCards.count}
             />
           </section>
 

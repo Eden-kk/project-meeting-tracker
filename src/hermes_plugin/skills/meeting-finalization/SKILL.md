@@ -27,8 +27,9 @@ Only these three tools are bound for this skill:
 
 ## Procedure
 
-1. Call `search_memory_cards(meeting_id=<id>, state="draft")` to list
-   every draft card the extraction skill produced.
+1. Call `search_memory_cards(meeting_id=<id>)` to list every visible card
+   the extraction skill produced. (Phase-3: cards no longer carry a
+   `state` field; the per-card state machine was removed in 0010_*.)
 2. Call `get_meeting_transcript(meeting_id=<id>)` to refresh the
    evidence base.
 3. For each draft card:

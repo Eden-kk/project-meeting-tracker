@@ -49,6 +49,7 @@ class MeetingStatus(Enum):
     live = "live"
     processing = "processing"
     ready = "ready"
+    finalizing = "finalizing"
     finalized = "finalized"
     failed = "failed"
 
@@ -61,13 +62,6 @@ class EvidenceQuality(Enum):
     medium = "medium"
     low = "low"
     lowest = "lowest"
-
-
-class MemoryCardState(Enum):
-    candidate = "candidate"
-    draft = "draft"
-    committed = "committed"
-    rejected = "rejected"
 
 
 class MemoryCardType(Enum):
@@ -132,7 +126,13 @@ class MeetingPattern(BaseModel):
 
 
 class Meeting(BaseModel):
-    """Processing/finalization record built on a ConversationArtifact. Source of truth: design-doc §8."""
+    """Processing/finalization record built on a ConversationArtifact. Source of truth: design-doc §8.
+
+    Phase-3 auto-finalize adds the `finalizing` status (between `ready`
+    and `finalized`) and the `last_finalize_error` field — populated when
+    the background finalize task fails so the status reverts to `ready`
+    and the cause is visible without log-diving.
+    """
 
     model_config = ConfigDict(extra="forbid")
     meeting_id: str = Field(..., min_length=1)
@@ -149,6 +149,13 @@ class Meeting(BaseModel):
     )
     evidence_quality: EvidenceQuality = Field(
         ..., description="Per design-doc §9 evidence-quality table."
+    )
+    last_finalize_error: str | None = Field(
+        None,
+        description=(
+            "Set by the auto-finalize background task when finalize fails; "
+            "status reverts to `ready` so the user can re-trigger."
+        ),
     )
 
 
@@ -177,12 +184,16 @@ class ConversationArtifact(BaseModel):
 
 
 class MemoryCard(BaseModel):
-    """Evidence-backed memory item Hermes extracts from a meeting. Source of truth: design-doc §13."""
+    """Evidence-backed memory item Hermes extracts from a meeting. Source of truth: design-doc §13.
+
+    Phase-3 redesign: dropped `state` enum and `needs_review`; added
+    `hidden_at` (agent soft-delete) and `superseded_by_id` (agent dedupe
+    pointer at the canonical winner card).
+    """
 
     model_config = ConfigDict(extra="forbid")
     memory_card_id: str = Field(..., min_length=1)
     meeting_id: str = Field(..., min_length=1)
-    state: MemoryCardState
     type: MemoryCardType
     title: str = Field(..., max_length=500, min_length=1)
     content: str
@@ -194,7 +205,18 @@ class MemoryCard(BaseModel):
         description="List of speaker names/ids implicated by this card; mirrors speaker_segments rows.",
     )
     confidence: float = Field(..., ge=0.0, le=1.0)
-    needs_review: bool | None = True
+    hidden_at: datetime | None = Field(
+        None,
+        description=(
+            "Agent-driven soft delete; list endpoints filter `hidden_at IS NULL` by default."
+        ),
+    )
+    superseded_by_id: str | None = Field(
+        None,
+        description=(
+            "If set, points at the canonical winner card from the agent consolidation pass."
+        ),
+    )
     created_by_agent: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -208,7 +230,6 @@ __all__ = [
     "MeetingPattern",
     "MeetingStatus",
     "MemoryCard",
-    "MemoryCardState",
     "MemoryCardType",
     "NormalizedTranscript",
     "ProcessingStatus",

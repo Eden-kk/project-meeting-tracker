@@ -3,20 +3,26 @@ import { listMeetingCards } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { useMeetings } from './useMeetings';
 
-export const DRAFT_COUNT_MAX_MEETINGS = 50;
+export const TOTAL_COUNT_MAX_MEETINGS = 50;
 
-export function useDraftCardCount(workspaceId?: string): {
+/**
+ * Sum visible memory cards across the workspace. Phase-3 replacement for
+ * the old `useDraftCardCount` (the per-card state machine is gone — there
+ * is no "draft" anymore; the agent's audit + consolidation passes own
+ * quality). Hook + file name kept stable to minimize churn elsewhere.
+ */
+export function useTotalCardCount(workspaceId?: string): {
   count: number;
   isLoading: boolean;
   isError: boolean;
 } {
   const { meetings } = useMeetings(workspaceId);
-  const slice = meetings.slice(0, DRAFT_COUNT_MAX_MEETINGS);
+  const slice = meetings.slice(0, TOTAL_COUNT_MAX_MEETINGS);
 
   const results = useQueries({
     queries: slice.map((m) => ({
-      queryKey: queryKeys.meetingCards(m.meeting_id, { state: 'draft' as const }),
-      queryFn: () => listMeetingCards(m.meeting_id, { state: 'draft' }),
+      queryKey: queryKeys.meetingCards(m.meeting_id),
+      queryFn: () => listMeetingCards(m.meeting_id),
       staleTime: 30_000,
       retry: false,
     })),

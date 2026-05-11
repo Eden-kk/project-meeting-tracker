@@ -60,6 +60,19 @@ describe('ProcessingPage', () => {
     );
   });
 
+  it('renders Hermes extraction as active when status is finalizing', async () => {
+    vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'finalizing' }));
+    renderAt('/meetings/m_1/processing');
+    // Status timeline marks Hermes extraction with the extracting label
+    // when the background task is mid-flight.
+    expect(await screen.findByText(/extracting/i)).toBeInTheDocument();
+    // Same as `ready`, the user is forwarded to the meeting view so they
+    // can read transcript / cards while finalize finishes.
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1', { replace: true }),
+    );
+  });
+
   it('shows failed card with try-again link', async () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'failed' }));
     renderAt('/meetings/m_1/processing');

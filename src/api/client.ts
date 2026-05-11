@@ -9,16 +9,13 @@ import type {
   FinalizeMeetingResponse,
   MemoryCard,
   MemoryCardListResponse,
-  MemoryCardState,
   MemoryCardType,
-  PatchMemoryCardInput,
 } from './memory_cards.types';
 
 export type {
   AskHermesResponse,
   EvidenceCitation,
   MemoryCard,
-  MemoryCardState,
   MemoryCardType,
 };
 
@@ -74,9 +71,11 @@ export async function listMeetings(params: ListMeetingsParams): Promise<Meetings
   return res.data;
 }
 
+/** Phase-3: state filter is gone; visibility is controlled by `include_hidden`
+ * (default false hides agent-soft-deleted rows). */
 export type ListMeetingCardsFilters = {
-  state?: MemoryCardState;
   type?: MemoryCardType;
+  include_hidden?: boolean;
 };
 
 export async function listMeetingCards(
@@ -93,24 +92,6 @@ export async function listMeetingCards(
 export async function createMemoryCard(input: CreateMemoryCardInput): Promise<MemoryCard> {
   const res = await api.post<MemoryCard>('/api/memory-cards', input);
   return res.data;
-}
-
-export async function patchMemoryCard(
-  id: string,
-  input: PatchMemoryCardInput,
-): Promise<MemoryCard> {
-  const res = await api.patch<MemoryCard>(`/api/memory-cards/${id}`, input);
-  return res.data;
-}
-
-export async function commitCard(id: string): Promise<MemoryCard> {
-  const res = await api.post<{ card: MemoryCard }>(`/api/memory-cards/${id}/commit`);
-  return res.data.card;
-}
-
-export async function rejectCard(id: string): Promise<MemoryCard> {
-  const res = await api.post<{ card: MemoryCard }>(`/api/memory-cards/${id}/reject`);
-  return res.data.card;
 }
 
 export async function finalizeMeeting(meetingId: string): Promise<FinalizeMeetingResponse> {

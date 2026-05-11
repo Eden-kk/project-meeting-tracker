@@ -18,7 +18,12 @@ MemoryCardOut = MemoryCard
 
 class MemoryCardCreate(BaseModel):
     """Request body for POST /api/memory-cards. Also the per-card payload Hermes
-    returns from `meeting_finalization`. Server assigns id/state/timestamps."""
+    returns from `meeting_finalization`. Server assigns id + timestamps.
+
+    Phase-3 redesign: no `state`, no `needs_review`. Cards are live as soon
+    as they are created; the audit + consolidation passes flag bad cards
+    via `hidden_at` / `superseded_by_id`.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -31,25 +36,7 @@ class MemoryCardCreate(BaseModel):
     source_end_ms: int | None = Field(None, ge=0)
     speakers_json: list[str] | None = None
     confidence: float = Field(..., ge=0.0, le=1.0)
-    needs_review: bool = True
     created_by_agent: str | None = None
-
-
-class MemoryCardPatch(BaseModel):
-    """Partial update for a draft MemoryCard. State transitions go through
-    commit/reject — `state` is intentionally not in the whitelist."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    type: MemoryCardType | None = None
-    title: str | None = Field(None, min_length=1, max_length=500)
-    content: str | None = None
-    source_chunk_ids: list[str] | None = Field(None, min_length=1)
-    source_start_ms: int | None = Field(None, ge=0)
-    source_end_ms: int | None = Field(None, ge=0)
-    speakers_json: list[str] | None = None
-    confidence: float | None = Field(None, ge=0.0, le=1.0)
-    needs_review: bool | None = None
 
 
 class MemoryCardListResponse(BaseModel):
@@ -64,6 +51,9 @@ class FinalizeResponse(BaseModel):
     finalized_at: datetime
     cards_created: int = Field(..., ge=0)
     summary: str
+    # Number of transcript chunks the chunked extractor processed.
+    # Defaults to 1 so the legacy single-pass path still validates.
+    chunks_processed: int = Field(1, ge=0)
 
 
 class QARequest(BaseModel):
@@ -73,18 +63,21 @@ class QARequest(BaseModel):
 
 
 class QAEvidenceItem(BaseModel):
+    """Frontend's EvidenceCitation shape (see src/api/memory_cards.types.ts)."""
     model_config = ConfigDict(extra="forbid")
-    chunk_id: str = Field(..., min_length=1)
+    segment_id: str = Field(..., min_length=1)
+    speaker: str
+    start_ms: int = Field(0, ge=0)
+    end_ms: int = Field(0, ge=0)
     text: str
-    speaker: str | None = None
-    start_ms: int | None = Field(None, ge=0)
-    end_ms: int | None = Field(None, ge=0)
 
 
 class QAResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     answer: str
-    evidence: list[QAEvidenceItem]
+    confidence: float = Field(0.85, ge=0.0, le=1.0)
+    citations: list[QAEvidenceItem] = Field(default_factory=list)
+    weak_evidence: bool = False
 
 
 __all__ = [
@@ -92,7 +85,6 @@ __all__ = [
     "MemoryCardCreate",
     "MemoryCardListResponse",
     "MemoryCardOut",
-    "MemoryCardPatch",
     "QAEvidenceItem",
     "QARequest",
     "QAResponse",

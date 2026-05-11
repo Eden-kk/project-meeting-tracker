@@ -1,12 +1,16 @@
-import type { MemoryCardState, MemoryCardType } from '../api/memory_cards.types';
+import type { MemoryCardType } from '../api/memory_cards.types';
 import { memoryCardTypeLabel } from './MemoryCardTypeIcon';
 
+/**
+ * Phase-3 redesign: the per-card state machine was removed, so the
+ * "Draft / Committed / Rejected" state pills are gone. Only the type
+ * filter survives.
+ */
+
 export type CardFilters = {
-  state?: MemoryCardState;
   type?: MemoryCardType;
 };
 
-const STATES: MemoryCardState[] = ['draft', 'committed', 'rejected'];
 const TYPES: MemoryCardType[] = [
   'decision',
   'action_item',
@@ -17,12 +21,6 @@ const TYPES: MemoryCardType[] = [
   'open_question',
   'technical_detail',
 ];
-
-const STATE_LABEL: Record<MemoryCardState, string> = {
-  draft: 'Draft',
-  committed: 'Committed',
-  rejected: 'Rejected',
-};
 
 type Props = {
   value: CardFilters;
@@ -38,26 +36,6 @@ function pillClass(active: boolean): string {
 export function MemoryCardFilters({ value, onChange }: Props) {
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-gray-500">State</span>
-        <button
-          type="button"
-          className={pillClass(value.state === undefined)}
-          onClick={() => onChange({ ...value, state: undefined })}
-        >
-          All
-        </button>
-        {STATES.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className={pillClass(value.state === s)}
-            onClick={() => onChange({ ...value, state: s })}
-          >
-            {STATE_LABEL[s]}
-          </button>
-        ))}
-      </div>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs uppercase tracking-wide text-gray-500">Type</span>
         <button
