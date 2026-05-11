@@ -27,15 +27,17 @@ def meeting_finalization(
       - Fetch the transcript once.
       - If ``chunk_minutes`` is not None AND every segment carries a
         ``start_ms``, dispatch to :func:`runtime.run_chunked_extraction`
-        (one Claude call per time window + one summary call).
+        (Anthropic-only path; one Claude call per time window + one
+        summary call).
       - Otherwise fall back to the legacy single-pass
-        ``run_skill('meeting-finalization', ...)`` path and synthesize a
+        ``run_skill('meeting-finalization', ...)`` via the LLM dispatcher
+        so ``LLM_PROVIDER`` selects the backend. Synthesizes a
         ``chunks_processed=1`` field so the response shape is uniform.
     """
     # Local imports keep `import hermes_plugin` cheap.
     from .client import StorageRouterClient
+    from .llm import run_skill as _run_skill
     from .runtime import run_chunked_extraction as _run_chunked
-    from .runtime import run_skill as _run_skill
     from .tools import get_meeting_transcript as _get_transcript
 
     storage_client = StorageRouterClient()
@@ -72,8 +74,9 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
     """Storage-router-facing entrypoint for /api/qa/meeting.
 
     Thin shim over ``run_skill('meeting-qa', meeting_id=..., user_question=question)``.
+    Routes through the LLM dispatcher so ``LLM_PROVIDER`` selects the backend.
     """
-    from .runtime import run_skill as _run_skill
+    from .llm import run_skill as _run_skill
 
     return _run_skill(
         skill_name="meeting-qa",
@@ -85,7 +88,7 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
 def __getattr__(name: str):
     if name == "run_skill":
         try:
-            from .runtime import run_skill as _run_skill
+            from .llm import run_skill as _run_skill
         except ImportError as exc:
             raise NotImplementedError(
                 "hermes_plugin.run_skill not yet implemented"
