@@ -1,0 +1,9 @@
+name: live-meeting-memory
+version: 0.1.0
+description: Tracker memory-card tools for Hermes/Claude.
+tools:
+  - get_meeting_transcript
+  - search_memory_cards
+  - create_draft_memory_card
+  - finalize_meeting_memory
+skills_dir: ./skills
