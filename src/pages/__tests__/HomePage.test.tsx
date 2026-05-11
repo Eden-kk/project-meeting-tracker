@@ -81,7 +81,7 @@ describe('HomePage', () => {
     expect(cards[0]).toHaveTextContent('C');
   });
 
-  it('renders the Cards needing review chip with summed draft totals', async () => {
+  it('renders the Total cards across workspace chip with summed visible totals', async () => {
     vi.spyOn(client, 'listMeetings').mockResolvedValue({
       items: [
         meetingFixture({ meeting_id: 'm1', title: 'A' }),
@@ -91,20 +91,22 @@ describe('HomePage', () => {
     });
     vi.spyOn(client, 'listMeetingCards').mockImplementation(async (id) => ({
       items: [],
-      total: id === 'm1' ? 2 : 0,
+      total: id === 'm1' ? 2 : 1,
     }));
 
     renderHome();
 
-    const chipLabel = await screen.findByText(/cards needing review/i);
+    const chipLabel = await screen.findByText(/total cards across workspace/i);
     const chip = chipLabel.closest('div.rounded') as HTMLElement;
     await waitFor(() => {
-      expect(chip.querySelector('div.text-xl')?.textContent).toBe('2');
+      expect(chip.querySelector('div.text-xl')?.textContent).toBe('3');
     });
     // The original three stat chips must still be present.
     expect(screen.getByText('Total')).toBeInTheDocument();
     expect(screen.getByText('Ready / Processing / Failed')).toBeInTheDocument();
     expect(screen.getByText('Top source')).toBeInTheDocument();
+    // Phase-3: legacy chip label is gone.
+    expect(screen.queryByText(/cards needing review/i)).not.toBeInTheDocument();
   });
 
   it('falls back to registry on network failure and caps at 6 cards', async () => {

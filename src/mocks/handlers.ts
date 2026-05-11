@@ -11,7 +11,6 @@ import type {
   FinalizeMeetingResponse,
   MemoryCard,
   MemoryCardListResponse,
-  MemoryCardState,
   MemoryCardType,
 } from '../api/memory_cards.types';
 import { expectedNormalized, makeFixtureCards, makeFixtureMeeting } from './fixtures';
@@ -40,16 +39,6 @@ function currentStatus(entry: Entry): Meeting['status'] {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function findCardWithEntry(
-  cardId: string,
-): { card: MemoryCard; entry: Entry } | null {
-  for (const entry of meetings.values()) {
-    const card = entry.cards.find((c) => c.memory_card_id === cardId);
-    if (card) return { card, entry };
-  }
-  return null;
 }
 
 function citationFromSegment(segmentId: string): EvidenceCitation | null {
@@ -87,7 +76,6 @@ export const handlers = [
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get('limit') ?? 50);
     const offset = Number(url.searchParams.get('offset') ?? 0);
-    // Newest insertion first; mirrors the backend's created_at DESC ordering.
     const all = [...meetings.entries()]
       .sort((a, b) => b[1].createdAt - a[1].createdAt)
       .map(([, entry]) => ({ ...entry.meeting, status: currentStatus(entry) }));
@@ -115,16 +103,17 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
+  // Phase-3: only `type` + `include_hidden` filters; no more `state`.
   http.get('*/api/meetings/:id/memory-cards', ({ params, request }) => {
     const id = params.id as string;
     const entry = meetings.get(id);
     if (!entry) return new HttpResponse(null, { status: 404 });
     const url = new URL(request.url);
-    const stateFilter = url.searchParams.get('state') as MemoryCardState | null;
     const typeFilter = url.searchParams.get('type') as MemoryCardType | null;
+    const includeHidden = url.searchParams.get('include_hidden') === 'true';
     const items = entry.cards.filter((c) => {
-      if (stateFilter && c.state !== stateFilter) return false;
       if (typeFilter && c.type !== typeFilter) return false;
+      if (!includeHidden && c.hidden_at !== null) return false;
       return true;
     });
     const body: MemoryCardListResponse = { items, total: items.length };
@@ -147,11 +136,12 @@ export const handlers = [
       memory_card_id: nextCardId(input.meeting_id),
       meeting_id: input.meeting_id,
       type: input.type,
-      state: 'draft',
       title: input.title,
       content: input.content,
       speakers: input.speakers ?? [],
       source_chunk_ids: input.source_chunk_ids ?? [],
+      hidden_at: null,
+      superseded_by_id: null,
       created_at: now,
       updated_at: now,
     };
@@ -159,29 +149,10 @@ export const handlers = [
     return HttpResponse.json(card, { status: 201 });
   }),
 
-  http.patch('*/api/memory-cards/:id', async ({ params, request }) => {
-    const found = findCardWithEntry(params.id as string);
-    if (!found) return new HttpResponse(null, { status: 404 });
-    const patch = (await request.json()) as Partial<MemoryCard>;
-    Object.assign(found.card, patch, { updated_at: nowIso() });
-    return HttpResponse.json(found.card);
-  }),
-
-  http.post('*/api/memory-cards/:id/commit', ({ params }) => {
-    const found = findCardWithEntry(params.id as string);
-    if (!found) return new HttpResponse(null, { status: 404 });
-    found.card.state = 'committed';
-    found.card.updated_at = nowIso();
-    return HttpResponse.json({ card: found.card });
-  }),
-
-  http.post('*/api/memory-cards/:id/reject', ({ params }) => {
-    const found = findCardWithEntry(params.id as string);
-    if (!found) return new HttpResponse(null, { status: 404 });
-    found.card.state = 'rejected';
-    found.card.updated_at = nowIso();
-    return HttpResponse.json({ card: found.card });
-  }),
+  // Phase-3: PATCH /api/memory-cards/:id and the commit / reject routes
+  // were removed. They are intentionally no longer mocked so any caller
+  // still trying to use them receives an MSW "unhandled" warning at dev
+  // time — surfacing the regression before it hits the backend.
 
   http.post('*/api/meetings/:id/finalize', ({ params }) => {
     const id = params.id as string;

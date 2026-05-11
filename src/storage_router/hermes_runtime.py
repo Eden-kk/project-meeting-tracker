@@ -40,12 +40,18 @@ def _import_or_503():
     return hermes_plugin
 
 
-def run_meeting_finalization(meeting_id: str) -> dict:
+def run_meeting_finalization(meeting_id: str, chunk_minutes: int = 5) -> dict:
+    """Forward to ``hermes_plugin.meeting_finalization`` with the chunk knob.
+
+    ``chunk_minutes`` is the time-window size (in minutes) used when the
+    transcript carries timestamps. The plugin falls back to single-pass
+    finalization for untimestamped transcripts regardless of this value.
+    """
     mod = _import_or_503()
     fn = getattr(mod, "meeting_finalization", None)
     if fn is None:
         raise HermesUnavailable("hermes_plugin.meeting_finalization not exported")
-    return fn(meeting_id=meeting_id)
+    return fn(meeting_id=meeting_id, chunk_minutes=chunk_minutes)
 
 
 def run_meeting_qa(meeting_id: str, question: str) -> dict:

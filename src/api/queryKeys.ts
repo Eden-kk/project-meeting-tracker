@@ -1,8 +1,8 @@
-import type { MemoryCardState, MemoryCardType } from './memory_cards.types';
+import type { MemoryCardType } from './memory_cards.types';
 
 type MeetingCardsFilters = {
-  state?: MemoryCardState;
   type?: MemoryCardType;
+  include_hidden?: boolean;
 };
 
 export const queryKeys = {
@@ -14,6 +14,11 @@ export const queryKeys = {
   // ['meetingCards', meetingId] (TanStack Query v5) refreshes every filter
   // variant for that meeting.
   meetingCards: (meetingId: string, filters?: MeetingCardsFilters) =>
-    ['meetingCards', meetingId, filters?.state ?? null, filters?.type ?? null] as const,
-  draftCountAll: (workspaceId: string) => ['draftCountAll', workspaceId] as const,
+    [
+      'meetingCards',
+      meetingId,
+      filters?.type ?? null,
+      filters?.include_hidden ?? null,
+    ] as const,
+  totalCardsAll: (workspaceId: string) => ['totalCardsAll', workspaceId] as const,
 };

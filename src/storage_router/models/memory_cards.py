@@ -51,6 +51,9 @@ class FinalizeResponse(BaseModel):
     finalized_at: datetime
     cards_created: int = Field(..., ge=0)
     summary: str
+    # Number of transcript chunks the chunked extractor processed.
+    # Defaults to 1 so the legacy single-pass path still validates.
+    chunks_processed: int = Field(1, ge=0)
 
 
 class QARequest(BaseModel):
@@ -60,18 +63,21 @@ class QARequest(BaseModel):
 
 
 class QAEvidenceItem(BaseModel):
+    """Frontend's EvidenceCitation shape (see src/api/memory_cards.types.ts)."""
     model_config = ConfigDict(extra="forbid")
-    chunk_id: str = Field(..., min_length=1)
+    segment_id: str = Field(..., min_length=1)
+    speaker: str
+    start_ms: int = Field(0, ge=0)
+    end_ms: int = Field(0, ge=0)
     text: str
-    speaker: str | None = None
-    start_ms: int | None = Field(None, ge=0)
-    end_ms: int | None = Field(None, ge=0)
 
 
 class QAResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     answer: str
-    evidence: list[QAEvidenceItem]
+    confidence: float = Field(0.85, ge=0.0, le=1.0)
+    citations: list[QAEvidenceItem] = Field(default_factory=list)
+    weak_evidence: bool = False
 
 
 __all__ = [

@@ -17,27 +17,66 @@ __version__ = "0.1.0"
 __all__ = ["__version__", "run_skill", "TOOL_REGISTRY", "meeting_finalization", "meeting_qa"]
 
 
-def meeting_finalization(meeting_id: str) -> dict:
+def meeting_finalization(
+    meeting_id: str,
+    chunk_minutes: int | None = 5,
+) -> dict:
     """Storage-router-facing entrypoint for /api/meetings/{id}/finalize.
 
-    Thin shim over ``run_skill('meeting-finalization', meeting_id=...)`` that
-    maps the storage-router contract (no ``user_question``) to ``run_skill``.
+    Routing:
+      - Fetch the transcript once.
+      - If ``chunk_minutes`` is not None AND every segment carries a
+        ``start_ms``, dispatch to :func:`runtime.run_chunked_extraction`
+        (Anthropic-only path; one Claude call per time window + one
+        summary call).
+      - Otherwise fall back to the legacy single-pass
+        ``run_skill('meeting-finalization', ...)`` via the LLM dispatcher
+        so ``LLM_PROVIDER`` selects the backend. Synthesizes a
+        ``chunks_processed=1`` field so the response shape is uniform.
     """
-    from .runtime import run_skill as _run_skill
+    # Local imports keep `import hermes_plugin` cheap.
+    from .client import StorageRouterClient
+    from .llm import run_skill as _run_skill
+    from .runtime import run_chunked_extraction as _run_chunked
+    from .tools import get_meeting_transcript as _get_transcript
 
-    return _run_skill(
+    storage_client = StorageRouterClient()
+    transcript = _get_transcript({"meeting_id": meeting_id}, storage_client)
+    segments = transcript.get("segments", [])
+
+    has_timestamps = bool(segments) and any(
+        s.get("start_ms") is not None for s in segments
+    )
+
+    if chunk_minutes is not None and has_timestamps:
+        return _run_chunked(
+            meeting_id,
+            chunk_minutes=chunk_minutes,
+            prefetched_segments=segments,
+            client=storage_client,
+        )
+
+    legacy = _run_skill(
         skill_name="meeting-finalization",
         meeting_id=meeting_id,
         user_question=None,
+        client=storage_client,
     )
+    # Normalize to the chunked-shape contract.
+    if isinstance(legacy, dict):
+        legacy.setdefault("chunks_processed", 1)
+        legacy.setdefault("cards_created", 0)
+        legacy.setdefault("summary", legacy.get("final_text", "") or "")
+    return legacy
 
 
 def meeting_qa(meeting_id: str, question: str) -> dict:
     """Storage-router-facing entrypoint for /api/qa/meeting.
 
     Thin shim over ``run_skill('meeting-qa', meeting_id=..., user_question=question)``.
+    Routes through the LLM dispatcher so ``LLM_PROVIDER`` selects the backend.
     """
-    from .runtime import run_skill as _run_skill
+    from .llm import run_skill as _run_skill
 
     return _run_skill(
         skill_name="meeting-qa",
@@ -49,7 +88,7 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
 def __getattr__(name: str):
     if name == "run_skill":
         try:
-            from .runtime import run_skill as _run_skill
+            from .llm import run_skill as _run_skill
         except ImportError as exc:
             raise NotImplementedError(
                 "hermes_plugin.run_skill not yet implemented"
