@@ -28,3 +28,4 @@ coverage/
 # Editor / tooling / scratch
 .claude/
 .worktrees/
+.claude/

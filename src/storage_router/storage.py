@@ -8,9 +8,23 @@ from storage_router.models.contracts import NormalizedTranscript, SpeakerSegment
 from storage_router.models.db import (
     ConversationArtifactRow,
     MeetingRow,
+    MemoryCardRow,
     SpeakerSegmentRow,
 )
 from storage_router.state_machine import next_status
+
+# Whitelist mirrors MemoryCardPatch — keep in sync.
+_PATCH_FIELDS = (
+    "type",
+    "title",
+    "content",
+    "source_chunk_ids",
+    "source_start_ms",
+    "source_end_ms",
+    "speakers_json",
+    "confidence",
+    "needs_review",
+)
 
 
 def create_artifact(
@@ -148,3 +162,130 @@ def get_transcript(session, meeting_id: str) -> NormalizedTranscript:
         for r in rows
     ]
     return NormalizedTranscript(meeting_id=meeting_id, segments=segments)
+
+
+# --- memory cards ----------------------------------------------------------
+
+def create_memory_card(
+    session,
+    *,
+    meeting_id: str,
+    type: str,
+    title: str,
+    content: str,
+    source_chunk_ids: list[str],
+    confidence: float,
+    source_start_ms: int | None = None,
+    source_end_ms: int | None = None,
+    speakers_json: list[str] | None = None,
+    needs_review: bool = True,
+    created_by_agent: str | None = None,
+) -> MemoryCardRow:
+    """Insert a new MemoryCard in state `draft`. Caller commits.
+
+    Raises LookupError if the meeting does not exist (route maps to 404).
+    """
+    if session.get(MeetingRow, meeting_id) is None:
+        raise LookupError(f"meeting {meeting_id} not found")
+    row = MemoryCardRow(
+        id=new_id("mem"),
+        meeting_id=meeting_id,
+        state="draft",
+        type=type,
+        title=title,
+        content=content,
+        source_chunk_ids=source_chunk_ids,
+        source_start_ms=source_start_ms,
+        source_end_ms=source_end_ms,
+        speakers_json=speakers_json,
+        confidence=confidence,
+        needs_review=needs_review,
+        created_by_agent=created_by_agent,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def list_meeting_cards(
+    session,
+    *,
+    meeting_id: str,
+    type: str | None = None,
+    state: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[MemoryCardRow], int]:
+    """Return (rows, total) for a meeting's cards, newest first.
+
+    Raises LookupError if the meeting does not exist.
+    """
+    if session.get(MeetingRow, meeting_id) is None:
+        raise LookupError(f"meeting {meeting_id} not found")
+    base = select(MemoryCardRow).where(MemoryCardRow.meeting_id == meeting_id)
+    if type is not None:
+        base = base.where(MemoryCardRow.type == type)
+    if state is not None:
+        base = base.where(MemoryCardRow.state == state)
+    total = session.execute(
+        select(func.count()).select_from(base.subquery())
+    ).scalar_one()
+    rows = (
+        session.execute(
+            base.order_by(MemoryCardRow.created_at.desc(), MemoryCardRow.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows), int(total)
+
+
+def get_memory_card(session, card_id: str) -> MemoryCardRow | None:
+    return session.get(MemoryCardRow, card_id)
+
+
+def patch_memory_card(session, card_id: str, patch: dict) -> MemoryCardRow:
+    """SELECT FOR UPDATE → whitelist apply → bump updated_at.
+
+    Raises LookupError if missing; ValueError("illegal_transition", "draft", state)
+    if the card is not in draft.
+    """
+    row = session.execute(
+        select(MemoryCardRow)
+        .where(MemoryCardRow.id == card_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if row.state != "draft":
+        raise ValueError("illegal_transition", "draft", row.state)
+    for field in _PATCH_FIELDS:
+        if field in patch:
+            setattr(row, field, patch[field])
+    row.updated_at = func.now()
+    session.flush()
+    return row
+
+
+def transition_card_state(session, card_id: str, *, target: str) -> MemoryCardRow:
+    """Transition draft → committed | rejected. Always clears needs_review.
+
+    Raises LookupError if missing; ValueError("illegal_transition", from, to)
+    if the transition is not allowed.
+    """
+    row = session.execute(
+        select(MemoryCardRow)
+        .where(MemoryCardRow.id == card_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if not (row.state == "draft" and target in ("committed", "rejected")):
+        raise ValueError("illegal_transition", row.state, target)
+    row.state = target
+    row.needs_review = False
+    row.updated_at = func.now()
+    session.flush()
+    return row
