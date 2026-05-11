@@ -31,7 +31,12 @@ export type DashboardProps = {
   emptyTitle: string;
   emptyBody: string;
   queryFn: typeof listActionItems;
-  queryKey: typeof queryKeys.actionItems;
+  // Either dashboard query-key factory plugs in here. They share the
+  // same parameter shape; the discriminator is the leading string
+  // (`actionItems` vs `openQuestions`).
+  queryKey: (
+    params: Parameters<typeof queryKeys.actionItems>[0],
+  ) => readonly unknown[];
 };
 
 export function DashboardView({ title, emptyTitle, emptyBody, queryFn, queryKey }: DashboardProps) {

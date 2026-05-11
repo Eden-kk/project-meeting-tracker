@@ -8,6 +8,7 @@ import MeetingReviewPage from './pages/MeetingReviewPage';
 import NotFoundPage from './pages/NotFoundPage';
 import SettingsPage from './pages/SettingsPage';
 import ActionItemsPage from './pages/ActionItemsPage';
+import OpenQuestionsPage from './pages/OpenQuestionsPage';
 import { SidebarShell } from './layouts/SidebarShell';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/meetings/:id/processing" element={<ProcessingPage />} />
           <Route path="/meetings/:id" element={<MeetingReviewPage />} />
           <Route path="/action-items" element={<ActionItemsPage />} />
+          <Route path="/open-questions" element={<OpenQuestionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
