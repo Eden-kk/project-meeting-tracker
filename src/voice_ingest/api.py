@@ -8,6 +8,7 @@ from pathlib import Path
 
 import jsonschema
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse
 
 from . import config
 from .transcribe import transcribe_voice_file
@@ -15,6 +16,11 @@ from .transcribe import transcribe_voice_file
 app = FastAPI(title="voice-ingest", version="0.1.0")
 
 _DECODE_HINTS = ("ffmpeg", "could not decode", "invalid data", "format")
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz")
