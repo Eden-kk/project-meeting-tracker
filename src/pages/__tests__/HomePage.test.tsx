@@ -53,6 +53,7 @@ describe('HomePage', () => {
     localStorage.clear();
     registry._resetMigrationLatch();
     vi.restoreAllMocks();
+    vi.spyOn(client, 'listMeetingCards').mockResolvedValue({ items: [], total: 0 });
   });
 
   it('shows empty state when API returns nothing and registry is empty', async () => {
@@ -78,6 +79,32 @@ describe('HomePage', () => {
     // First server entry comes first.
     const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
     expect(cards[0]).toHaveTextContent('C');
+  });
+
+  it('renders the Cards needing review chip with summed draft totals', async () => {
+    vi.spyOn(client, 'listMeetings').mockResolvedValue({
+      items: [
+        meetingFixture({ meeting_id: 'm1', title: 'A' }),
+        meetingFixture({ meeting_id: 'm2', title: 'B' }),
+      ],
+      total: 2,
+    });
+    vi.spyOn(client, 'listMeetingCards').mockImplementation(async (id) => ({
+      items: [],
+      total: id === 'm1' ? 2 : 0,
+    }));
+
+    renderHome();
+
+    const chipLabel = await screen.findByText(/cards needing review/i);
+    const chip = chipLabel.closest('div.rounded') as HTMLElement;
+    await waitFor(() => {
+      expect(chip.querySelector('div.text-xl')?.textContent).toBe('2');
+    });
+    // The original three stat chips must still be present.
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getByText('Ready / Processing / Failed')).toBeInTheDocument();
+    expect(screen.getByText('Top source')).toBeInTheDocument();
   });
 
   it('falls back to registry on network failure and caps at 6 cards', async () => {
