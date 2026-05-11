@@ -14,7 +14,36 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-__all__ = ["__version__", "run_skill", "TOOL_REGISTRY"]
+__all__ = ["__version__", "run_skill", "TOOL_REGISTRY", "meeting_finalization", "meeting_qa"]
+
+
+def meeting_finalization(meeting_id: str) -> dict:
+    """Storage-router-facing entrypoint for /api/meetings/{id}/finalize.
+
+    Thin shim over ``run_skill('meeting-finalization', meeting_id=...)`` that
+    maps the storage-router contract (no ``user_question``) to ``run_skill``.
+    """
+    from .runtime import run_skill as _run_skill
+
+    return _run_skill(
+        skill_name="meeting-finalization",
+        meeting_id=meeting_id,
+        user_question=None,
+    )
+
+
+def meeting_qa(meeting_id: str, question: str) -> dict:
+    """Storage-router-facing entrypoint for /api/qa/meeting.
+
+    Thin shim over ``run_skill('meeting-qa', meeting_id=..., user_question=question)``.
+    """
+    from .runtime import run_skill as _run_skill
+
+    return _run_skill(
+        skill_name="meeting-qa",
+        meeting_id=meeting_id,
+        user_question=question,
+    )
 
 
 def __getattr__(name: str):
