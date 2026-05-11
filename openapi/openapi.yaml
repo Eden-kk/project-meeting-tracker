@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 1 surface
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Phase-1 endpoints for the Hermes-powered meeting memory tracker.
     Only the routes needed by Phase 1 (shared import + basic review) are
@@ -278,12 +278,27 @@ paths:
       description: |
         Runs `hermes_plugin.meeting_finalization`, persists returned cards as
         `draft` MemoryCards, marks the meeting `finalized`, and returns a summary.
-        Synchronous in Phase 2; long-running calls block.
+        Synchronous in Phase 2; long-running calls block. For timestamped
+        transcripts the plugin chunks the meeting into `chunk_minutes`-sized
+        windows and runs one Claude pass per window so long meetings don't
+        exceed the model context budget.
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: string }
+        - in: query
+          name: chunk_minutes
+          required: false
+          description: |
+            Time-window size (in minutes) used by the chunked extractor.
+            Out-of-range values return 422. Untimestamped transcripts fall
+            back to single-pass finalization regardless of this value.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 5
       responses:
         '200':
           description: OK
@@ -552,6 +567,13 @@ components:
         finalized_at:  { type: string, format: date-time }
         cards_created: { type: integer, minimum: 0 }
         summary:       { type: string }
+        chunks_processed:
+          type: integer
+          minimum: 0
+          default: 1
+          description: |
+            Number of transcript chunks the chunked extractor processed.
+            Defaults to 1 for the legacy single-pass finalization path.
 
     QARequest:
       type: object

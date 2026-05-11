@@ -51,7 +51,7 @@ async def test_finalize_503_when_hermes_missing(client) -> None:
 async def test_finalize_unknown_meeting_404(client, monkeypatch) -> None:
     monkeypatch.setattr(
         "storage_router.hermes_runtime.run_meeting_finalization",
-        lambda meeting_id: {"cards": [], "summary": ""},
+        lambda meeting_id, chunk_minutes=5: {"cards": [], "summary": ""},
     )
     r = await client.post("/api/meetings/m_does_not_exist/finalize")
     assert r.status_code == 404
@@ -60,14 +60,18 @@ async def test_finalize_unknown_meeting_404(client, monkeypatch) -> None:
 # 3
 async def test_finalize_happy_path(client, monkeypatch) -> None:
     mid = _seed_meeting()
+    received: dict = {}
 
-    def _stub(meeting_id: str) -> dict:
+    def _stub(meeting_id: str, chunk_minutes: int = 5) -> dict:
+        received["meeting_id"] = meeting_id
+        received["chunk_minutes"] = chunk_minutes
         return {
             "cards": [
                 _stub_card(meeting_id, title="One"),
                 _stub_card(meeting_id, title="Two", type="action_item"),
             ],
             "summary": "It was a meeting.",
+            "chunks_processed": 3,
         }
 
     monkeypatch.setattr(
@@ -80,6 +84,9 @@ async def test_finalize_happy_path(client, monkeypatch) -> None:
     assert body["summary"] == "It was a meeting."
     assert body["meeting_id"] == mid
     assert body["finalized_at"] is not None
+    assert body["chunks_processed"] == 3
+    # Default chunk_minutes propagated.
+    assert received["chunk_minutes"] == 5
 
     with SessionLocal() as s:
         meeting = s.get(MeetingRow, mid)
@@ -91,12 +98,44 @@ async def test_finalize_happy_path(client, monkeypatch) -> None:
         assert len(rows) == 2
 
 
+# 3a — explicit chunk_minutes flows through to the runtime call
+async def test_finalize_chunk_minutes_param_propagates(client, monkeypatch) -> None:
+    mid = _seed_meeting()
+    received: dict = {}
+
+    def _stub(meeting_id: str, chunk_minutes: int = 5) -> dict:
+        received["chunk_minutes"] = chunk_minutes
+        return {"cards_created": 0, "summary": "ok", "chunks_processed": 4}
+
+    monkeypatch.setattr(
+        "storage_router.hermes_runtime.run_meeting_finalization", _stub
+    )
+    r = await client.post(f"/api/meetings/{mid}/finalize?chunk_minutes=15")
+    assert r.status_code == 200, r.text
+    assert received["chunk_minutes"] == 15
+    assert r.json()["chunks_processed"] == 4
+    assert r.json()["cards_created"] == 0
+
+
+# 3b — out-of-range chunk_minutes → 422
+async def test_finalize_chunk_minutes_out_of_range_422(client, monkeypatch) -> None:
+    mid = _seed_meeting()
+    monkeypatch.setattr(
+        "storage_router.hermes_runtime.run_meeting_finalization",
+        lambda meeting_id, chunk_minutes=5: {"cards": [], "summary": ""},
+    )
+    r = await client.post(f"/api/meetings/{mid}/finalize?chunk_minutes=0")
+    assert r.status_code == 422
+    r2 = await client.post(f"/api/meetings/{mid}/finalize?chunk_minutes=99")
+    assert r2.status_code == 422
+
+
 # 4
 async def test_finalize_already_finalized_409(client, monkeypatch) -> None:
     mid = _seed_meeting()
     monkeypatch.setattr(
         "storage_router.hermes_runtime.run_meeting_finalization",
-        lambda meeting_id: {"cards": [], "summary": "x"},
+        lambda meeting_id, chunk_minutes=5: {"cards": [], "summary": "x"},
     )
     r = await client.post(f"/api/meetings/{mid}/finalize")
     assert r.status_code == 200

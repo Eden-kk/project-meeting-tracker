@@ -64,6 +64,9 @@ class FinalizeResponse(BaseModel):
     finalized_at: datetime
     cards_created: int = Field(..., ge=0)
     summary: str
+    # Number of transcript chunks the chunked extractor processed.
+    # Defaults to 1 so the legacy single-pass path still validates.
+    chunks_processed: int = Field(1, ge=0)
 
 
 class QARequest(BaseModel):
