@@ -68,3 +68,18 @@ export type AskHermesResponse = {
   citations: EvidenceCitation[];
   weak_evidence: boolean;
 };
+
+/** Wave 5.3 — follow-up draft request + response shapes. */
+export type FollowupDraftTone = 'decisive' | 'warm' | 'neutral';
+
+export type FollowupDraftInput = {
+  meeting_id: string;
+  recipient?: string;
+  tone?: FollowupDraftTone;
+};
+
+export type FollowupDraftResponse = {
+  meeting_id: string;
+  markdown: string;
+  cards_referenced: string[];
+};

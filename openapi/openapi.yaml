@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 3 surface
-  version: 0.5.0
+  version: 0.7.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
     removed. There is no `state` enum, no `needs_review` flag, no
@@ -269,6 +269,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/HermesUnavailable'
 
+  /api/meetings/{meeting_id}/followup-draft:
+    post:
+      summary: Draft a follow-up email after a meeting (5.3, Hermes-backed)
+      description: |
+        Forwards to the `meeting-followup-draft` Hermes skill. The
+        skill pulls memory cards (any type) for the meeting and
+        composes a markdown body the user can copy into their email
+        client. Optional `recipient` is sanitized server-side (max
+        100 chars, alphanumeric + space + hyphen + apostrophe only;
+        anything else returns 422). Optional `tone` is one of
+        `decisive`, `warm`, `neutral` (default `neutral`).
+      parameters:
+        - in: path
+          name: meeting_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowupDraftRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowupDraftResponse'
+        '404':
+          description: Meeting not found
+        '422':
+          description: Validation error (e.g. recipient contains invalid characters)
+        '503':
+          description: Hermes plugin unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HermesUnavailable'
+
   # --- Phase 2+ endpoints not yet defined in this spec --------------------
   # POST /api/live-meetings/start
   # POST /api/live-meetings/{id}/audio-frame
@@ -426,6 +466,35 @@ components:
           type: array
           items: { $ref: '#/components/schemas/MemoryCard' }
         total: { type: integer, minimum: 0 }
+
+    FollowupDraftRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        recipient:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: |
+            Free-text recipient name. Server-side validator rejects
+            anything outside `[\w \-']` (with `_` allowed via `\w`)
+            with HTTP 422 so the LLM never sees attacker punctuation.
+        tone:
+          type: string
+          enum: [decisive, warm, neutral]
+          nullable: true
+
+    FollowupDraftResponse:
+      type: object
+      required: [meeting_id, markdown, cards_referenced]
+      properties:
+        meeting_id: { type: string }
+        markdown:
+          type: string
+          description: The follow-up email body, ready to copy into a mail client.
+        cards_referenced:
+          type: array
+          items: { type: string }
 
     AlreadyFinalized:
       type: object

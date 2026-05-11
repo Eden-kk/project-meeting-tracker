@@ -9,6 +9,7 @@ import type {
   AskHermesResponse,
   EvidenceCitation,
   FinalizeMeetingResponse,
+  FollowupDraftResponse,
   MemoryCard,
   MemoryCardListResponse,
   MemoryCardType,
@@ -162,6 +163,28 @@ export const handlers = [
     entry.meeting.finalized_at = now;
     const body: FinalizeMeetingResponse = { meeting_id: id, finalized_at: now };
     return HttpResponse.json(body);
+  }),
+
+  // Wave 5.3 — POST /api/meetings/:id/followup-draft. The mock echoes
+  // the recipient + tone into the markdown so component tests can
+  // assert wiring without spinning up Hermes.
+  http.post('*/api/meetings/:id/followup-draft', async ({ params, request }) => {
+    const id = params.id as string;
+    const entry = meetings.get(id);
+    if (!entry) return new HttpResponse(null, { status: 404 });
+    const body = (await request.json().catch(() => ({}))) as {
+      recipient?: string;
+      tone?: string;
+    };
+    const greeting = body.recipient ? `Hi ${body.recipient},` : 'Hi team,';
+    const tone = body.tone ?? 'neutral';
+    const md = `${greeting}\n\nFollow-up draft (${tone}). Cards: ${entry.cards.length}.`;
+    const out: FollowupDraftResponse = {
+      meeting_id: id,
+      markdown: md,
+      cards_referenced: entry.cards.map((c) => c.memory_card_id),
+    };
+    return HttpResponse.json(out);
   }),
 
   http.post('*/api/qa/meeting', async ({ request }) => {

@@ -7,6 +7,8 @@ import type {
   CreateMemoryCardInput,
   EvidenceCitation,
   FinalizeMeetingResponse,
+  FollowupDraftInput,
+  FollowupDraftResponse,
   MemoryCard,
   MemoryCardListResponse,
   MemoryCardType,
@@ -103,5 +105,15 @@ export async function finalizeMeeting(meetingId: string): Promise<FinalizeMeetin
 
 export async function askHermes(input: AskHermesInput): Promise<AskHermesResponse> {
   const res = await api.post<AskHermesResponse>('/api/qa/meeting', input);
+  return res.data;
+}
+
+/** Wave 5.3 — POST /api/meetings/{id}/followup-draft. */
+export async function draftFollowup(input: FollowupDraftInput): Promise<FollowupDraftResponse> {
+  const { meeting_id, ...body } = input;
+  const res = await api.post<FollowupDraftResponse>(
+    `/api/meetings/${meeting_id}/followup-draft`,
+    body,
+  );
   return res.data;
 }

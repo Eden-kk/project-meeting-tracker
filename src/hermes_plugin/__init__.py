@@ -14,7 +14,14 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-__all__ = ["__version__", "run_skill", "TOOL_REGISTRY", "meeting_finalization", "meeting_qa"]
+__all__ = [
+    "__version__",
+    "run_skill",
+    "TOOL_REGISTRY",
+    "meeting_finalization",
+    "meeting_qa",
+    "followup_draft",
+]
 
 
 def meeting_finalization(
@@ -68,6 +75,40 @@ def meeting_finalization(
         legacy.setdefault("cards_created", 0)
         legacy.setdefault("summary", legacy.get("final_text", "") or "")
     return legacy
+
+
+def followup_draft(
+    meeting_id: str,
+    recipient: str | None = None,
+    tone: str | None = None,
+) -> dict:
+    """Storage-router-facing entrypoint for /api/meetings/{id}/followup-draft.
+
+    Thin shim over the dispatcher's ``run_skill`` with the
+    ``meeting-followup-draft`` skill. The route layer is responsible
+    for sanitizing ``recipient`` and validating ``tone`` before this
+    function is called — by the time we get here the inputs are safe
+    to splice into the bootstrap prompt.
+
+    Returns the dispatcher's raw shape: ``{"final_text": str, ...}``.
+    The route layer parses ``final_text`` into ``{"markdown",
+    "cards_referenced"}`` and surfaces only the markdown body to the
+    frontend.
+    """
+    from .llm import run_skill as _run_skill
+
+    parts: list[str] = []
+    if recipient:
+        parts.append(f"recipient={recipient}")
+    if tone:
+        parts.append(f"tone={tone}")
+    user_question = "; ".join(parts) if parts else None
+
+    return _run_skill(
+        skill_name="meeting-followup-draft",
+        meeting_id=meeting_id,
+        user_question=user_question,
+    )
 
 
 def meeting_qa(meeting_id: str, question: str) -> dict:
