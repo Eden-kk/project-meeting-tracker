@@ -5,7 +5,8 @@ import pytest
 
 @pytest.fixture(scope="session")
 def worktree_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    # tests/voice_ingest/conftest.py -> parents[2] = repo root
+    return Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="session")
