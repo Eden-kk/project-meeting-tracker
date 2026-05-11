@@ -234,3 +234,118 @@ def list_meeting_cards(
 
 def get_memory_card(session, card_id: str) -> MemoryCardRow | None:
     return session.get(MemoryCardRow, card_id)
+
+
+def update_card_confidence(
+    session,
+    *,
+    card_id: str,
+    confidence: float,
+    reason: str | None = None,
+) -> MemoryCardRow:
+    """Patch a card's confidence (and optional audit_reason).
+
+    Used by the Wave 2.1 audit pass to downgrade weak cards without
+    hiding them. Raises LookupError if the card does not exist.
+    """
+    row = session.get(MemoryCardRow, card_id)
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError("confidence must be in [0, 1]")
+    row.confidence = confidence
+    if reason is not None:
+        row.audit_reason = reason
+    session.flush()
+    return row
+
+
+def hide_card(
+    session,
+    *,
+    card_id: str,
+    reason: str | None = None,
+) -> MemoryCardRow:
+    """Soft-delete a card by setting hidden_at = NOW() + audit_reason.
+
+    Idempotent: hiding an already-hidden card returns the row untouched.
+    Raises LookupError if the card does not exist.
+    """
+    from datetime import datetime, timezone
+
+    row = session.get(MemoryCardRow, card_id)
+    if row is None:
+        raise LookupError(f"memory card {card_id} not found")
+    if row.hidden_at is None:
+        row.hidden_at = datetime.now(timezone.utc)
+    if reason is not None:
+        row.audit_reason = reason
+    session.flush()
+    return row
+
+
+def supersede_cards(
+    session,
+    *,
+    loser_id: str,
+    winner_id: str,
+) -> tuple[MemoryCardRow, MemoryCardRow]:
+    """Consolidate `loser` into `winner` (Wave 2.2).
+
+    Validates:
+    - both cards exist and belong to the same meeting;
+    - neither card is already hidden;
+    - loser is not already superseded;
+    - loser != winner.
+
+    Effects:
+    - loser.superseded_by_id = winner_id
+    - loser.hidden_at = NOW() (idempotent if already set)
+    - winner.source_chunk_ids gains loser.source_chunk_ids (dedup'd, order preserved)
+
+    Idempotent: calling twice does not double-append source ids and does
+    not flip the loser's hidden_at timestamp.
+    """
+    from datetime import datetime, timezone
+
+    if loser_id == winner_id:
+        raise ValueError("loser and winner must differ")
+    loser = session.get(MemoryCardRow, loser_id)
+    if loser is None:
+        raise LookupError(f"memory card {loser_id} not found")
+    winner = session.get(MemoryCardRow, winner_id)
+    if winner is None:
+        raise LookupError(f"memory card {winner_id} not found")
+    if loser.meeting_id != winner.meeting_id:
+        raise ValueError("cards must belong to the same meeting")
+    if winner.hidden_at is not None:
+        raise ValueError("winner card is hidden")
+    if winner.superseded_by_id is not None:
+        raise ValueError("winner card is itself already superseded")
+
+    # Idempotent guard: if loser is already pointed at this winner, just
+    # ensure the merge state is consistent and return.
+    if loser.superseded_by_id == winner_id:
+        # Hidden_at should already be set from the first call.
+        if loser.hidden_at is None:
+            loser.hidden_at = datetime.now(timezone.utc)
+        session.flush()
+        return loser, winner
+
+    if loser.superseded_by_id is not None:
+        raise ValueError("loser card is already superseded by a different card")
+
+    # Append loser's source chunks to the winner, deduplicating.
+    winner_ids = list(winner.source_chunk_ids or [])
+    seen = set(winner_ids)
+    for cid in loser.source_chunk_ids or []:
+        if cid not in seen:
+            winner_ids.append(cid)
+            seen.add(cid)
+    winner.source_chunk_ids = winner_ids
+
+    loser.superseded_by_id = winner_id
+    if loser.hidden_at is None:
+        loser.hidden_at = datetime.now(timezone.utc)
+    session.flush()
+    return loser, winner

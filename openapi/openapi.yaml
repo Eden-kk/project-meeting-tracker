@@ -1,14 +1,19 @@
 openapi: 3.0.3
 info:
   title: Tracker API — Phase 3 surface
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Phase-3 redesign: the memory-card user-curation state machine has been
     removed. There is no `state` enum, no `needs_review` flag, no
     PATCH/commit/reject routes. Cards are live as soon as the agent creates
     them; quality is owned by the audit + consolidation passes which write
-    `confidence`, `hidden_at`, and `superseded_by_id` (the list endpoint
-    hides the latter two by default).
+    `confidence`, `hidden_at`, `superseded_by_id`, and `audit_reason`.
+    The list endpoint hides agent-soft-deleted / superseded rows by default.
+
+    Wave 2 (this version) adds the agent quality endpoints:
+      * PATCH /api/memory-cards/{id}/confidence — audit pass downgrades a card
+      * POST  /api/memory-cards/{id}/hide       — audit pass soft-deletes a card
+      * POST  /api/memory-cards/{loser}/supersede-into/{winner} — consolidation merge
 
 servers:
   - url: http://localhost:8000
@@ -192,6 +197,94 @@ paths:
                 $ref: '#/components/schemas/MemoryCardListResponse'
         '404':
           description: Meeting not found
+
+  /api/memory-cards/{id}/confidence:
+    patch:
+      summary: Update a card's confidence (audit pass)
+      description: |
+        Wave 2.1. Called by the meeting-card-audit skill to downgrade
+        weakly-supported cards. Sets `confidence` and (optionally) the
+        free-text `audit_reason`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardConfidencePatch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+        '422':
+          description: Validation error
+
+  /api/memory-cards/{id}/hide:
+    post:
+      summary: Soft-delete a card (audit pass)
+      description: |
+        Wave 2.1. Sets `hidden_at = NOW()` and persists the reason
+        to `audit_reason`. Idempotent; calling twice does not flip the
+        timestamp.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryCardHideRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryCard'
+        '404':
+          description: Card not found
+
+  /api/memory-cards/{loser_id}/supersede-into/{winner_id}:
+    post:
+      summary: Merge a near-duplicate card into a canonical winner (consolidation pass)
+      description: |
+        Wave 2.2. Validates that both cards belong to the same meeting,
+        neither is already hidden, and the winner is not itself
+        superseded. Hides the loser, points its `superseded_by_id` at
+        the winner, and appends the loser's `source_chunk_ids` to the
+        winner (deduplicated).
+      parameters:
+        - in: path
+          name: loser_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: winner_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupersedeResponse'
+        '404':
+          description: Card not found
+        '409':
+          description: Merge precondition failed
 
   /api/meetings/{id}/finalize:
     post:
@@ -389,6 +482,7 @@ components:
         confidence:       { type: number, minimum: 0, maximum: 1 }
         hidden_at:        { type: string, format: date-time, nullable: true, description: "Agent-driven soft delete; list endpoints hide these by default." }
         superseded_by_id: { type: string, nullable: true, description: "Canonical winner card from the agent consolidation pass." }
+        audit_reason:     { type: string, nullable: true, description: "Rationale recorded by the audit pass when a card is downgraded or hidden." }
         created_by_agent: { type: string, nullable: true }
         created_at:       { type: string, format: date-time, nullable: true }
         updated_at:       { type: string, format: date-time, nullable: true }
@@ -447,6 +541,31 @@ components:
           properties:
             code:    { type: string, enum: [hermes_unavailable] }
             message: { type: string }
+
+    MemoryCardConfidencePatch:
+      type: object
+      additionalProperties: false
+      required: [confidence]
+      properties:
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        reason:     { type: string, nullable: true, maxLength: 2000 }
+
+    MemoryCardHideRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: { type: string, nullable: true, maxLength: 2000 }
+
+    SupersedeResponse:
+      type: object
+      additionalProperties: false
+      required: [loser_id, winner_id, winner_source_chunk_ids]
+      properties:
+        loser_id:                { type: string }
+        winner_id:               { type: string }
+        winner_source_chunk_ids:
+          type: array
+          items: { type: string }
 
     FinalizeResponse:
       type: object
