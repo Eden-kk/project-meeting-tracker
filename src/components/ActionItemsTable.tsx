@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { ActionItemRow } from '../api/memory_cards.types';
+import { useWorkspace } from '../hooks/useWorkspace';
 
 type Props = {
   rows: ActionItemRow[];
@@ -38,11 +39,13 @@ export function ActionItemsTable({ rows, emptyMessage = 'No items.' }: Props) {
 }
 
 function ActionItemRowView({ row }: { row: ActionItemRow }) {
+  const { workspaceId } = useWorkspace();
   // Anchor `#seg:<segment_id>` matches the transcript-tab scroll target
   // shipped by Phase-2.5 (see TranscriptView). Fall back to first
   // source_chunk_id when source_start_ms is not addressable.
   const segId = row.source_chunk_ids[0];
-  const href = segId ? `/meetings/${row.meeting_id}#seg:${segId}` : `/meetings/${row.meeting_id}`;
+  const meetingBase = `/ws/${workspaceId}/meetings/${row.meeting_id}`;
+  const href = segId ? `${meetingBase}#seg:${segId}` : meetingBase;
   const speaker = (row.speakers_json ?? []).join(', ') || '—';
   const finalized = row.meeting_finalized_at
     ? new Date(row.meeting_finalized_at).toLocaleString()
@@ -59,7 +62,7 @@ function ActionItemRowView({ row }: { row: ActionItemRow }) {
       </td>
       <td className="px-3 py-2 text-gray-700">{speaker}</td>
       <td className="px-3 py-2">
-        <Link to={`/meetings/${row.meeting_id}`} className="text-gray-700 hover:underline">
+        <Link to={meetingBase} className="text-gray-700 hover:underline">
           {row.meeting_title || row.meeting_id}
         </Link>
       </td>

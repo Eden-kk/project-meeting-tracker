@@ -1,4 +1,8 @@
-"""VTT parser — uses webvtt-py and extracts `<v Name>` tags from raw caption text."""
+"""VTT parser — uses webvtt-py and extracts `<v Name>` tags from raw caption text.
+
+Falls back to colon-prefix heuristic (`Name: text`) when no `<v>` tag is present,
+which is the format produced by Zoom and similar tools.
+"""
 from __future__ import annotations
 
 import re
@@ -9,6 +13,8 @@ from ._speakers import make_speaker_registry
 
 _TS_RE = re.compile(r"^(\d{2}):(\d{2}):(\d{2})[.,](\d{3})$")
 _VTAG_RE = re.compile(r"<v\s+([^>]+)>")
+# Colon-prefix: must start with a capital letter, end with alphanumeric, ≤60 chars total.
+_COLON_RE = re.compile(r"^([A-Za-z][A-Za-z0-9 .'-]{1,58}[A-Za-z0-9]):\s+(.+)$")
 
 
 def _ts_to_ms(ts: str) -> int:
@@ -26,8 +32,18 @@ def parse_vtt(text: str) -> list[dict]:
     for i, cap in enumerate(captions, start=1):
         raw = getattr(cap, "raw_text", None) or cap.text
         m = _VTAG_RE.search(raw)
-        speaker_name = m.group(1).strip() if m else None
-        body = _VTAG_RE.sub("", raw).strip() if m else cap.text.strip()
+        if m:
+            speaker_name = m.group(1).strip()
+            body = _VTAG_RE.sub("", raw).strip()
+        else:
+            # Fallback: colon-prefix convention (e.g. Zoom VTT: "Steven Ford: Hello")
+            cm = _COLON_RE.match(cap.text.strip())
+            if cm:
+                speaker_name = cm.group(1).strip()
+                body = cm.group(2).strip()
+            else:
+                speaker_name = None
+                body = cap.text.strip()
         segments.append(
             {
                 "segment_id": f"seg_{i:03d}",

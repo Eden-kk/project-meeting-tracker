@@ -2,15 +2,18 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { askWorkspace, type WorkspaceQACitation } from '../api/client';
+import { useWorkspace } from '../hooks/useWorkspace';
+import { AnswerBody } from '../components/AnswerBody';
 
-function citationLink(c: WorkspaceQACitation): string {
+function citationLink(workspaceId: string, c: WorkspaceQACitation): string {
+  const base = `/ws/${workspaceId}/meetings/${c.meeting_id}`;
   if (c.memory_card_id) {
-    return `/meetings/${c.meeting_id}#card-${c.memory_card_id}`;
+    return `${base}#card-${c.memory_card_id}`;
   }
   if (c.segment_id) {
-    return `/meetings/${c.meeting_id}#seg-${c.segment_id}`;
+    return `${base}#seg-${c.segment_id}`;
   }
-  return `/meetings/${c.meeting_id}`;
+  return base;
 }
 
 function citationLabel(c: WorkspaceQACitation): string {
@@ -20,10 +23,11 @@ function citationLabel(c: WorkspaceQACitation): string {
 }
 
 export default function AskPage() {
+  const { workspaceId } = useWorkspace();
   const [question, setQuestion] = useState('');
 
   const ask = useMutation({
-    mutationFn: () => askWorkspace({ question }),
+    mutationFn: () => askWorkspace({ workspace_id: workspaceId, question }),
   });
 
   return (
@@ -83,9 +87,9 @@ export default function AskPage() {
                 </span>
               )}
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-900">
-              {ask.data.answer}
-            </p>
+            <div className="mt-2 text-gray-900">
+              <AnswerBody text={ask.data.answer} />
+            </div>
           </div>
 
           {ask.data.citations.length > 0 && (
@@ -95,7 +99,7 @@ export default function AskPage() {
                 {ask.data.citations.map((c, i) => (
                   <li key={`${c.meeting_id}-${c.memory_card_id ?? c.segment_id ?? i}`}>
                     <Link
-                      to={citationLink(c)}
+                      to={citationLink(workspaceId, c)}
                       className="block rounded border border-gray-100 px-3 py-2 hover:bg-gray-50"
                     >
                       <div className="text-xs text-gray-500">

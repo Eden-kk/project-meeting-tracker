@@ -6,6 +6,7 @@ import {
   uploadLiveChunk,
   type LiveSegment,
 } from '../api/client';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
 import { SuggestedQuestionsPanel } from '../components/SuggestedQuestionsPanel';
 import { SpeakerRenameDialog } from '../components/SpeakerRenameDialog';
@@ -32,6 +33,7 @@ const POLL_MS = 2000;
  * lives in `e2e/live-capture.spec.ts` (mocked backend).
  */
 export default function LivePage() {
+  const { workspaceId } = useWorkspace();
   const [phase, setPhase] = useState<Phase>('idle');
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [title, setTitle] = useState('Live meeting');
@@ -125,7 +127,7 @@ export default function LivePage() {
       return;
     }
     try {
-      const created = await createLiveMeeting(title.trim() || 'Live meeting');
+      const created = await createLiveMeeting(workspaceId, title.trim() || 'Live meeting');
       meetingRef.current = created.meeting_id;
       setMeetingId(created.meeting_id);
       seqRef.current = 0;

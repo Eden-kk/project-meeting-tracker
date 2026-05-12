@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { sourceLabel } from './SourceIcon';
 import { StatusPill } from './StatusPill';
 
@@ -29,6 +30,7 @@ function formatDate(iso: string): string {
 }
 
 export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] }) {
+  const { workspaceId } = useWorkspace();
   const [sortKey, setSortKey] = useState<SortKey>('imported_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -66,7 +68,7 @@ export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] })
         {sorted.map((m) => (
           <tr key={m.meeting_id} className="border-b border-gray-100 hover:bg-gray-50">
             <td className="px-3 py-2">
-              <Link to={`/meetings/${m.meeting_id}`} className="text-blue-700 hover:underline">
+              <Link to={`/ws/${workspaceId}/meetings/${m.meeting_id}`} className="text-blue-700 hover:underline">
                 {m.title}
               </Link>
             </td>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HomeMemoryItemsCard, formatRelative } from '../HomeMemoryItemsCard';
 import { queryKeys } from '../../api/queryKeys';
@@ -27,16 +27,23 @@ function renderCard(props: {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <HomeMemoryItemsCard
-          type="action_item"
-          title="Action items"
-          dashboardHref="/action-items"
-          emptyTitle="No action items yet"
-          emptyBody="Items will appear here."
-          queryFn={props.queryFn}
-          queryKey={queryKeys.actionItems}
-        />
+      <MemoryRouter initialEntries={['/ws/ws_dev/']}>
+        <Routes>
+          <Route
+            path="/ws/:workspaceId/*"
+            element={
+              <HomeMemoryItemsCard
+                type="action_item"
+                title="Action items"
+                dashboardHref="/action-items"
+                emptyTitle="No action items yet"
+                emptyBody="Items will appear here."
+                queryFn={props.queryFn}
+                queryKey={queryKeys.actionItems}
+              />
+            }
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -74,7 +81,7 @@ describe('HomeMemoryItemsCard', () => {
       await screen.findByRole('heading', { name: /no action items yet/i }),
     ).toBeInTheDocument();
     const cta = screen.getByRole('link', { name: /import a meeting/i });
-    expect(cta).toHaveAttribute('href', '/import');
+    expect(cta).toHaveAttribute('href', '/ws/ws_dev/import');
   });
 
   it('row href uses #seg:<first chunk> when source_chunk_ids non-empty, plain meeting URL otherwise', async () => {
@@ -88,9 +95,9 @@ describe('HomeMemoryItemsCard', () => {
     renderCard({ queryFn });
 
     const withChunk = await screen.findByRole('link', { name: /with chunk/i });
-    expect(withChunk).toHaveAttribute('href', '/meetings/m-1#seg:c-42');
+    expect(withChunk).toHaveAttribute('href', '/ws/ws_dev/meetings/m-1#seg:c-42');
     const noChunk = screen.getByRole('link', { name: /no chunk/i });
-    expect(noChunk).toHaveAttribute('href', '/meetings/m-9');
+    expect(noChunk).toHaveAttribute('href', '/ws/ws_dev/meetings/m-9');
   });
 });
 

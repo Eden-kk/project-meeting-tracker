@@ -80,7 +80,25 @@ def get_transcript(meeting_id: str, session: Session = Depends(get_session)):
             status_code=409,
             content={"error": {"code": "not_ready", "current_status": row.status}},
         )
-    return storage.get_transcript(session, meeting_id).model_dump(mode="json")
+    transcript = storage.get_transcript(session, meeting_id)
+    # Apply speaker_label_map at read time — same logic as the live /segments
+    # endpoint — so renaming a speaker is reflected in the transcript tab
+    # without rewriting historical speaker_segments rows.
+    label_map: dict[str, str] = dict(row.speaker_label_map or {})
+    if label_map:
+        patched_segments = [
+            seg.model_copy(
+                update={
+                    "speaker_name": (
+                        label_map.get(seg.speaker_id) if seg.speaker_id else None
+                    )
+                    or seg.speaker_name
+                }
+            )
+            for seg in transcript.segments
+        ]
+        transcript = transcript.model_copy(update={"segments": patched_segments})
+    return transcript.model_dump(mode="json")
 
 
 @router.patch("/api/meetings/{meeting_id}/speakers")
