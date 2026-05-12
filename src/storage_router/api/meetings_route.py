@@ -28,6 +28,7 @@ def _meeting_to_contract(row) -> Meeting:
         evidence_quality=row.evidence_quality,
         last_finalize_error=row.last_finalize_error,
         speaker_label_map=row.speaker_label_map,
+        current_topic=row.current_topic,
     )
 
 

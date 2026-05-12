@@ -101,11 +101,19 @@ def _next_chunk_seq(meeting_id: str) -> int:
 
 @router.post("/api/live-meetings", status_code=201)
 def create_live_meeting(
+    request: Request,
     workspace_id: str = Form(...),
     title: str = Form("Live meeting"),
     session: Session = Depends(get_session),
 ):
-    """Create an artifact + meeting in ``status='live'``."""
+    """Create an artifact + meeting in ``status='live'``.
+
+    Wave 8.6: also spawns the per-meeting `live-topic-tracker` tick
+    loop on `app.state.live_tasks[meeting_id]["topic"]`. The task is
+    cancelled by `end_live_meeting`. Spawn is best-effort: if the
+    asyncio scheduler is unavailable (synchronous test client without
+    a running loop) we swallow and log rather than fail the route.
+    """
     artifact = storage.create_artifact(
         session,
         workspace_id=workspace_id,
@@ -125,6 +133,16 @@ def create_live_meeting(
         )
     )
     session.commit()
+    try:
+        from storage_router.live_topic_tracker import start_topic_loop
+
+        start_topic_loop(request.app, meeting.id)
+    except RuntimeError as exc:  # no running event loop (sync test client)
+        logger.info(
+            "live-topic-tracker not started for %s (no event loop): %s",
+            meeting.id,
+            exc,
+        )
     return {
         "artifact_id": artifact.id,
         "meeting_id": meeting.id,
@@ -353,6 +371,13 @@ def end_live_meeting(
             _persist_sentence(session, meeting_id, sentence)
     # Drop the per-meeting diarizer so its rolling buffer is freed.
     request.app.state.live_diarizers.pop(meeting_id, None)
+    # Wave 8.6: cancel the per-meeting topic-tracker tick loop.
+    try:
+        from storage_router.live_topic_tracker import cancel_topic_loop
+
+        cancel_topic_loop(request.app, meeting_id)
+    except Exception as exc:  # noqa: BLE001 — cleanup should never raise
+        logger.warning("cancel_topic_loop failed for %s: %s", meeting_id, exc)
     if meeting.status == "live":
         meeting.status = "ready"
     session.commit()

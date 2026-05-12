@@ -95,6 +95,11 @@ class MeetingRow(Base):
     # to `speaker_segments` rows. JSONB so a rename does not rewrite
     # historical rows. Shape: {"speaker_2": "Alice", ...}.
     speaker_label_map: Mapped[dict | None] = mapped_column(JSONB)
+    # Wave 8.6: short ("Currently discussing: ...") header text. Updated
+    # every 30 s by `storage_router/live_topic_tracker.py` while the
+    # meeting is `live`. NULL when no topic has settled, or when the
+    # topic-tracker skill refused for too-sparse input.
+    current_topic: Mapped[str | None] = mapped_column(Text)
 
 
 class MeetingSourceRow(Base):

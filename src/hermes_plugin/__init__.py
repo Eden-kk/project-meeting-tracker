@@ -22,6 +22,7 @@ __all__ = [
     "meeting_qa",
     "followup_draft",
     "workspace_qa",
+    "live_topic_tracker",
 ]
 
 
@@ -223,6 +224,32 @@ def meeting_qa(meeting_id: str, question: str) -> dict:
         meeting_id=meeting_id,
         user_question=question,
     )
+
+
+def live_topic_tracker(transcript_snippet: str) -> str:
+    """Storage-router-facing entrypoint for the Wave-8.6 30-s topic tick.
+
+    The caller has already pulled the last ≤60 s of finalized sentences
+    via `storage.get_transcript(...)` and joined them into a plain
+    string. We invoke the `live-topic-tracker` skill (no tools bound)
+    and return the model's raw single-line output verbatim — the
+    storage-router writes it to `meetings.current_topic`. The skill is
+    expected to refuse with the literal sentinel `__TOPIC_INSUFFICIENT__`
+    when the snippet is too sparse; the storage-router treats that
+    sentinel as "write NULL, don't surface a hallucinated topic."
+    """
+    from .llm import run_skill as _run_skill
+
+    result = _run_skill(
+        skill_name="live-topic-tracker",
+        # No meeting_id / workspace_id binding because this skill
+        # explicitly does NOT call any tool — passing the snippet via
+        # the bootstrap user_question keeps the runtime contract
+        # symmetric with `meeting-summary-overall`.
+        user_question=transcript_snippet,
+    )
+    raw = result.get("final_text", "") if isinstance(result, dict) else ""
+    return raw.strip()
 
 
 def workspace_qa(workspace_id: str, question: str) -> dict:

@@ -72,10 +72,25 @@ def create_app() -> FastAPI:
     # `live_route.receive_chunk`, popped on `end_live_meeting`. Each
     # instance holds the rolling 30-s PCM buffer for its meeting.
     app.state.live_diarizers: dict = {}
+    # Wave 8.6 — per-meeting asyncio task registry. Sub-keyed by task
+    # name (`"topic"` for the live-topic-tracker loop) so future tasks
+    # can co-exist on the same dict without colliding.
+    app.state.live_tasks: dict = {}
 
     @app.on_event("startup")
     def _startup() -> None:
         _ensure_dev_seed()
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        # Cancel every running per-meeting task so the event loop can
+        # terminate cleanly. Wave 8.6 + later waves all register their
+        # tasks here.
+        for bucket in list(app.state.live_tasks.values()):
+            for task in bucket.values():
+                if not task.done():
+                    task.cancel()
+        app.state.live_tasks.clear()
 
     app.include_router(import_route.router)
     app.include_router(live_route.router)

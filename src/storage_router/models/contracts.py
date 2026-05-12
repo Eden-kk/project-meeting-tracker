@@ -166,6 +166,15 @@ class Meeting(BaseModel):
             "historical rows."
         ),
     )
+    current_topic: str | None = Field(
+        None,
+        description=(
+            "Wave 8.6: short 'currently discussing X' header refreshed by "
+            "the per-meeting topic-tracker tick every 30 s while the "
+            "meeting is `live`. NULL when no topic has settled or the "
+            "skill refused for too-sparse input."
+        ),
+    )
 
 
 class ConversationArtifact(BaseModel):
