@@ -91,6 +91,15 @@ class MeetingRow(Base):
     # Phase-3 auto-finalize: populated when a background finalize task
     # fails so the UI can show the cause without spelunking the logs.
     last_finalize_error: Mapped[str | None] = mapped_column(Text)
+    # Wave 8.4: per-meeting friendly speaker names, applied at read time
+    # to `speaker_segments` rows. JSONB so a rename does not rewrite
+    # historical rows. Shape: {"speaker_2": "Alice", ...}.
+    speaker_label_map: Mapped[dict | None] = mapped_column(JSONB)
+    # Wave 8.6: short ("Currently discussing: ...") header text. Updated
+    # every 30 s by `storage_router/live_topic_tracker.py` while the
+    # meeting is `live`. NULL when no topic has settled, or when the
+    # topic-tracker skill refused for too-sparse input.
+    current_topic: Mapped[str | None] = mapped_column(Text)
     # Wave 6.3 — rolling summary refreshed by the live extraction loop
     # while the meeting is still ``status='live'``. Updated in place every
     # ~120s; NULL until the first tick succeeds.

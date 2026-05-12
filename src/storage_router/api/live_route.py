@@ -89,11 +89,19 @@ def _next_chunk_seq(meeting_id: str) -> int:
 
 @router.post("/api/live-meetings", status_code=201)
 async def create_live_meeting(
+    request: Request,
     workspace_id: str = Form(...),
     title: str = Form("Live meeting"),
     session: Session = Depends(get_session),
 ):
-    """Create an artifact + meeting in ``status='live'``."""
+    """Create an artifact + meeting in ``status='live'``.
+
+    Wave 8.6: also spawns the per-meeting `live-topic-tracker` tick
+    loop on `app.state.live_tasks[meeting_id]["topic"]`. The task is
+    cancelled by `end_live_meeting`. Spawn is best-effort: if the
+    asyncio scheduler is unavailable (synchronous test client without
+    a running loop) we swallow and log rather than fail the route.
+    """
     artifact = storage.create_artifact(
         session,
         workspace_id=workspace_id,
@@ -113,6 +121,16 @@ async def create_live_meeting(
         )
     )
     session.commit()
+    try:
+        from storage_router.live_topic_tracker import start_topic_loop
+
+        start_topic_loop(request.app, meeting.id)
+    except RuntimeError as exc:  # no running event loop (sync test client)
+        logger.info(
+            "live-topic-tracker not started for %s (no event loop): %s",
+            meeting.id,
+            exc,
+        )
     # Wave 6.3: spin up the periodic agent loop that refreshes the
     # rolling summary every ~120s. ``start_for`` is a no-op if there is
     # no running event loop (e.g., a sync test client) so we don't have
@@ -217,27 +235,17 @@ async def receive_chunk(
         logger.warning(
             "voice-ingest failed for meeting=%s seq=%s: %s", meeting_id, seq, exc
         )
-        # Fallback so the UI still progresses; downstream finalize can ignore
-        # rows with confidence=0.0 + the placeholder text.
-        fallback = SpeakerSegmentRow(
-            id=new_id("seg"),
-            meeting_id=meeting_id,
-            speaker_id=None,
-            speaker_name=None,
-            start_ms=offset_ms,
-            end_ms=offset_ms + CHUNK_DURATION_MS,
-            text=f"[live chunk {seq} received — transcription pending]",
-            confidence=0.0,
-            source_type="live_voice",
-            is_final=False,
-        )
-        session.add(fallback)
-        session.commit()
+        # Do NOT insert a placeholder row. voice-ingest 500s on silence
+        # (faster-whisper raises on sub-threshold audio), so inserting here
+        # produces "[live chunk N received — transcription pending]" noise for
+        # every silent chunk. Failed chunks are invisible to the user; the live
+        # page renders nothing rather than a stuck placeholder line.
         return {
             "seq": seq,
-            "segments_added": 1,
+            "segments_added": 0,
             "bytes": len(blob),
             "transcribed": False,
+            "error": "voice-ingest failed",
         }
 
     # Wave 8.3 — convert voice-ingest segments to the buffer's input shape,
@@ -270,7 +278,11 @@ async def receive_chunk(
 
 
 @router.post("/api/live-meetings/{meeting_id}/end")
-async def end_live_meeting(meeting_id: str, session: Session = Depends(get_session)):
+async def end_live_meeting(
+    meeting_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
     """Flip the meeting from ``live`` -> ``ready``.
 
     The downstream finalize/extract pipeline runs on its own cadence; this
@@ -299,7 +311,7 @@ async def end_live_meeting(meeting_id: str, session: Session = Depends(get_sessi
             _persist_sentence(session, meeting_id, sentence)
     if meeting.status == "live":
         meeting.status = "ready"
-        session.commit()
+    session.commit()
     # Wave 6.3 + 6.4: tear down both agent loops. Safe to call even if
     # no task was ever started (idle no-op). The standard finalize
     # chain at /end runs the consolidation pass which dedupes any
@@ -340,6 +352,11 @@ def list_segments(
         except StopIteration:
             pass
 
+    # Wave 8.4: apply per-meeting speaker_label_map at read time so a
+    # live rename never rewrites historical rows. The map's value wins
+    # over a per-row `speaker_name` if both are present (the rename is
+    # the user's explicit choice).
+    label_map: dict[str, str] = dict(meeting.speaker_label_map or {})
     return {
         "meeting_id": meeting_id,
         "status": meeting.status,
@@ -347,11 +364,16 @@ def list_segments(
         # so the frontend can pick it up on the same 2s poll without a
         # second round-trip. NULL until the first agent tick succeeds.
         "live_summary": meeting.live_summary,
+        # Wave 8.6: bundle the current topic so the UI can display it
+        # on the same 2s poll cadence without a separate round-trip.
+        "current_topic": meeting.current_topic,
         "segments": [
             {
                 "segment_id": r.id,
                 "speaker_id": r.speaker_id,
-                "speaker_name": r.speaker_name,
+                "speaker_name": (
+                    label_map.get(r.speaker_id) if r.speaker_id else None
+                ) or r.speaker_name,
                 "start_ms": r.start_ms,
                 "end_ms": r.end_ms,
                 "text": r.text,

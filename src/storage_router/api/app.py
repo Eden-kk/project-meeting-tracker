@@ -73,6 +73,17 @@ def create_app() -> FastAPI:
     def _startup() -> None:
         _ensure_dev_seed()
 
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        # Cancel every running per-meeting task so the event loop can
+        # terminate cleanly. Wave 8.6 + later waves all register their
+        # tasks here.
+        for bucket in list(app.state.live_tasks.values()):
+            for task in bucket.values():
+                if not task.done():
+                    task.cancel()
+        app.state.live_tasks.clear()
+
     app.include_router(import_route.router)
     app.include_router(live_route.router)
     app.include_router(meetings_route.router)

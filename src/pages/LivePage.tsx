@@ -7,6 +7,7 @@ import {
   type LiveSegment,
 } from '../api/client';
 import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
+import { SpeakerRenameDialog } from '../components/SpeakerRenameDialog';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
 
@@ -36,9 +37,11 @@ export default function LivePage() {
   const [segments, setSegments] = useState<LiveSegment[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Wave 6.3: rolling summary refreshed by the backend every ~120s.
-  // The segments-poll response carries it, so we don't need a separate
-  // poll loop. NULL until the first agent tick succeeds.
   const [liveSummary, setLiveSummary] = useState<string | null>(null);
+  // Wave 8.6: current discussion topic from the topic-tracker tick.
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  // Wave 8.6: speaker chip clicked → open rename dialog.
+  const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -65,12 +68,40 @@ export default function LivePage() {
       // zero new segments — so the panel reflects the latest agent
       // pass.
       setLiveSummary(resp.live_summary ?? null);
+      setCurrentTopic(resp.current_topic ?? null);
       if (resp.segments.length === 0) return;
       lastSegIdRef.current = resp.segments[resp.segments.length - 1].segment_id;
       setSegments((prev) => [...prev, ...resp.segments]);
     } catch (err) {
       // Polling errors are non-fatal; surface them only if we have nothing.
       console.warn('live-poll failed', err);
+    }
+  }, []);
+
+  // Used by the rename-success handler to do a full REPLACE of the segment
+  // list (not an append). Resets the cursor and overwrites React state
+  // atomically so concurrent interval ticks that race with the reset cannot
+  // append a second copy of previously-seen segments.
+  const refetchAllSegments = useCallback(async () => {
+    const id = meetingRef.current;
+    if (!id) return;
+    // Reset the cursor BEFORE the fetch so any concurrent interval tick
+    // that fires between now and the response resolving sees the same null
+    // cursor. The first one to resolve will set the cursor and subsequent
+    // ticks will correctly fetch only NEW segments.
+    lastSegIdRef.current = null;
+    try {
+      const resp = await listLiveSegments(id, null);
+      setLiveSummary(resp.live_summary ?? null);
+      setCurrentTopic(resp.current_topic ?? null);
+      // REPLACE — not append — so we don't double-render prior segments.
+      lastSegIdRef.current =
+        resp.segments.length > 0
+          ? resp.segments[resp.segments.length - 1].segment_id
+          : null;
+      setSegments(resp.segments);
+    } catch (err) {
+      console.warn('live-refetch failed', err);
     }
   }, []);
 
@@ -96,6 +127,7 @@ export default function LivePage() {
       lastSegIdRef.current = null;
       setSegments([]);
       setLiveSummary(null);
+      setCurrentTopic(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -258,6 +290,16 @@ export default function LivePage() {
         )}
       </section>
 
+      {/* Wave 8.6: current discussion topic, updated every ~30s. */}
+      {currentTopic && (
+        <div
+          data-testid="current-topic-banner"
+          className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        >
+          <span className="font-medium">Currently discussing:</span> {currentTopic}
+        </div>
+      )}
+
       {/* Wave 6.4: side panel that lists cards as the live extraction
           tick produces them. Stops polling when the meeting ends. */}
       <LiveDraftCardsPanel
@@ -280,10 +322,15 @@ export default function LivePage() {
                 <span className="mr-2 text-gray-400">
                   {s.start_ms != null ? `${(s.start_ms / 1000).toFixed(0)}s` : '·'}
                 </span>
-                {s.speaker_name && (
-                  <span className="mr-2 font-medium text-gray-700">
-                    {s.speaker_name}:
-                  </span>
+                {(s.speaker_name ?? s.speaker_id) && meetingId && (
+                  <button
+                    type="button"
+                    onClick={() => setRenamingSpeaker(s.speaker_id)}
+                    className="mr-2 font-medium text-gray-700 hover:underline"
+                    title="Click to rename speaker"
+                  >
+                    {s.speaker_name ?? s.speaker_id}:
+                  </button>
                 )}
                 <span>{s.text}</span>
               </li>
@@ -291,6 +338,23 @@ export default function LivePage() {
           </ol>
         )}
       </section>
+      {/* Wave 8.6: speaker rename dialog, opened by clicking a speaker chip. */}
+      {renamingSpeaker && meetingId && (
+        <SpeakerRenameDialog
+          meetingId={meetingId}
+          speakerId={renamingSpeaker}
+          onSuccess={() => {
+            // Full replace-refetch so renamed speaker labels appear
+            // immediately without duplicating previously-rendered rows.
+            // refetchAllSegments resets the cursor and writes setSegments
+            // with a plain assignment (not an append), making it safe even
+            // when an interval tick races concurrently.
+            setRenamingSpeaker(null);
+            void refetchAllSegments();
+          }}
+          onClose={() => setRenamingSpeaker(null)}
+        />
+      )}
     </div>
   );
 }
