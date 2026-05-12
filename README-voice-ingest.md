@@ -31,3 +31,12 @@ WHISPER_MODEL=large-v3 WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=float16 \
 ## HF token (optional, enables real diarization)
 
 If `HF_TOKEN` is unset, the diarization layer falls back to assigning every segment to `speaker_1` (single-speaker stub).
+
+## Whisper model defaults (Wave 8.2)
+
+The default `WHISPER_MODEL` is `large-v3`. Notes:
+
+- **Disk:** ~3 GB of weights cached under `MODEL_CACHE_DIR` (default `<repo>/models/`) on first use.
+- **VRAM:** ~10 GB at `float16` (CUDA). On a CPU-only laptop the model will fall back to `int8` and run extremely slowly — override with `WHISPER_MODEL=medium` for local dev.
+- **Code-switching:** `transcribe(...)` is invoked with `condition_on_previous_text=True` and `language=None` (auto-detect) so mid-utterance Chinese↔English code-switching transcribes in the spoken script rather than collapsing to a single language.
+- **Cold start:** first request after a fresh deploy takes 60–90 s while weights download. The deploy image should pre-pull `large-v3` at build time to drop cold start to ~5 s.

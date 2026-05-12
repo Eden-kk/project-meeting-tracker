@@ -53,6 +53,7 @@ def transcribe_voice_file(
         language=None,
         vad_filter=True,
         word_timestamps=False,
+        condition_on_previous_text=True,
     )
 
     segments: list[dict] = []
