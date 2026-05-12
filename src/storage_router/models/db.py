@@ -91,6 +91,10 @@ class MeetingRow(Base):
     # Phase-3 auto-finalize: populated when a background finalize task
     # fails so the UI can show the cause without spelunking the logs.
     last_finalize_error: Mapped[str | None] = mapped_column(Text)
+    # Wave 8.4: per-meeting friendly speaker names, applied at read time
+    # to `speaker_segments` rows. JSONB so a rename does not rewrite
+    # historical rows. Shape: {"speaker_2": "Alice", ...}.
+    speaker_label_map: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class MeetingSourceRow(Base):
