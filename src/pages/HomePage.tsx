@@ -4,7 +4,10 @@ import { useTotalCardCount } from '../hooks/useDraftCardCount';
 import { MeetingCard } from '../components/MeetingCard';
 import { StatChip } from '../components/StatChip';
 import { EmptyState } from '../components/EmptyState';
+import { HomeMemoryItemsCard } from '../components/HomeMemoryItemsCard';
 import { sourceLabel } from '../components/SourceIcon';
+import { listActionItems, listOpenQuestions } from '../api/client';
+import { queryKeys } from '../api/queryKeys';
 import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
 
 const RECENT_LIMIT = 6;
@@ -71,6 +74,27 @@ export default function HomePage() {
             <StatChip
               label="Total cards across workspace"
               value={totalCards.isLoading ? '—' : totalCards.count}
+            />
+          </section>
+
+          <section aria-label="Outstanding" className="grid gap-3 lg:grid-cols-2">
+            <HomeMemoryItemsCard
+              type="action_item"
+              title="Action items"
+              dashboardHref="/action-items"
+              emptyTitle="No action items yet"
+              emptyBody="Action items extracted from your meetings will show up here."
+              queryFn={listActionItems}
+              queryKey={queryKeys.actionItems}
+            />
+            <HomeMemoryItemsCard
+              type="open_question"
+              title="Open questions"
+              dashboardHref="/open-questions"
+              emptyTitle="No open questions yet"
+              emptyBody="Open questions surfaced from your meetings will show up here."
+              queryFn={listOpenQuestions}
+              queryKey={queryKeys.openQuestions}
             />
           </section>
 
