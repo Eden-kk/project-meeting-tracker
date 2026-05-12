@@ -55,6 +55,18 @@ except Exception:  # pragma: no cover — only the import path matters
         DEFAULT_PUNCT_MAX_WAIT_MS as _PUNCT_MAX_WAIT_MS,
     )
 
+try:
+    # Wave 8.5 — diarization gate budget. Same fallback rationale as 8.3.
+    from voice_ingest.config import (
+        DIARIZATION_GATE_POLL_MS as _DIARIZATION_GATE_POLL_MS,
+        DIARIZATION_GATE_TIMEOUT_MS as _DIARIZATION_GATE_TIMEOUT_MS,
+    )
+except Exception:  # pragma: no cover
+    _DIARIZATION_GATE_TIMEOUT_MS = 10_000
+    _DIARIZATION_GATE_POLL_MS = 500
+
+from storage_router.diarization_gate import gate_assign
+
 logger = logging.getLogger(__name__)
 
 # Each WebM chunk from the browser is exactly this long. The browser sets
@@ -138,18 +150,21 @@ def _persist_sentence(
     session: Session,
     meeting_id: str,
     sentence: CompleteSentence,
+    *,
+    speaker_id: str = "speaker_1",
 ) -> SpeakerSegmentRow:
     """Insert one sentence as a `speaker_segments` row.
 
-    Wave 8.3 still writes `speaker_id="speaker_1"` — diarization arrives in
-    8.4 and the gate (8.5) will block this insert until the label is
-    settled. `is_final=True` because, by definition for this layer, a
-    sentence is a final unit (terminal punctuation seen or force-flushed).
+    Wave 8.5: `speaker_id` is supplied by the diarization gate; defaults
+    to `speaker_1` only when the gate is bypassed (the `end_live_meeting`
+    flush path, where pyannote has nothing more to say). The row is
+    `is_final=True` because, by definition, a sentence is a final unit
+    (terminal punctuation seen or force-flushed).
     """
     row = SpeakerSegmentRow(
         id=new_id("seg"),
         meeting_id=meeting_id,
-        speaker_id="speaker_1",
+        speaker_id=speaker_id,
         speaker_name=None,
         start_ms=sentence.start_ms,
         end_ms=sentence.end_ms,
@@ -160,6 +175,22 @@ def _persist_sentence(
     )
     session.add(row)
     return row
+
+
+def _get_diarizer(request: Request, meeting_id: str):
+    """Return (or lazily create) the per-meeting `LiveDiarizer`.
+
+    Lazy import to avoid pulling `numpy` into the import graph for
+    storage-router-only test runs that never touch the live path.
+    """
+    diarizers: dict = request.app.state.live_diarizers
+    diar = diarizers.get(meeting_id)
+    if diar is None:
+        from voice_ingest.live_diarize import LiveDiarizer  # lazy
+
+        diar = LiveDiarizer(meeting_id=meeting_id)
+        diarizers[meeting_id] = diar
+    return diar
 
 
 @router.post("/api/live-meetings/{meeting_id}/audio-chunk", status_code=202)
@@ -248,8 +279,32 @@ async def receive_chunk(
             )
         )
     sentences = buffer.feed(feed_segments)
+    # Wave 8.5 — gate persistence on diarization. We poll the diarizer
+    # for each completed sentence (up to DIARIZATION_GATE_TIMEOUT_MS)
+    # and only then insert the row. The gate falls back to
+    # `speaker_id="unknown"` on timeout so the UI does not stall.
+    diarizer = _get_diarizer(request, meeting_id)
     for sentence in sentences:
-        inserted.append(_persist_sentence(session, meeting_id, sentence))
+        gate = await gate_assign(
+            diarizer,
+            sentence.start_ms,
+            sentence.end_ms,
+            timeout_ms=_DIARIZATION_GATE_TIMEOUT_MS,
+            poll_ms=_DIARIZATION_GATE_POLL_MS,
+        )
+        if gate.gated_unknown:
+            logger.info(
+                "live_route gated_unknown=true meeting=%s seq=%s text=%r wait_ms=%s",
+                meeting_id,
+                seq,
+                sentence.text,
+                gate.waited_ms,
+            )
+        inserted.append(
+            _persist_sentence(
+                session, meeting_id, sentence, speaker_id=gate.speaker_id
+            )
+        )
     session.commit()
 
     return {
@@ -291,7 +346,13 @@ def end_live_meeting(
     buf = buffers.pop(meeting_id, None)
     if buf is not None:
         for sentence in buf.flush():
+            # Trailing fragment on /end: skip the gate (the recording is
+            # over, no further audio will arrive). Persist with the
+            # current default speaker_id; a subsequent rename via
+            # PATCH /api/meetings/{id}/speakers can still relabel it.
             _persist_sentence(session, meeting_id, sentence)
+    # Drop the per-meeting diarizer so its rolling buffer is freed.
+    request.app.state.live_diarizers.pop(meeting_id, None)
     if meeting.status == "live":
         meeting.status = "ready"
     session.commit()
