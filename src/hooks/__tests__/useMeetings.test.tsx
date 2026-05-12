@@ -57,8 +57,11 @@ function wrap(): { wrapper: ({ children }: { children: ReactNode }) => JSX.Eleme
 }
 
 describe('mergeServerAndRegistry', () => {
+  const recentIso = () => new Date(Date.now() - 30_000).toISOString();
+  const ancientIso = '2025-01-01T00:00:00.000Z';
+
   it('server fields win on overlap; registry adds source_type/imported_at', () => {
-    const merged = mergeServerAndRegistry(
+    const { merged } = mergeServerAndRegistry(
       [meetingFixture({ title: 'Server', status: 'ready' })],
       [summaryFixture({ title: 'Registry', status: 'processing', source_type: 'voice_file' })],
     );
@@ -66,19 +69,29 @@ describe('mergeServerAndRegistry', () => {
     expect(merged[0].title).toBe('Server');
     expect(merged[0].status).toBe('ready');
     expect(merged[0].source_type).toBe('voice_file');
-    expect(merged[0].imported_at).toBe('2025-01-01T00:00:00.000Z');
+    expect(merged[0].imported_at).toBe(ancientIso);
   });
 
-  it('registry-only entries are appended after the server run', () => {
-    const merged = mergeServerAndRegistry(
+  it('fresh registry-only entries (within grace window) are appended after the server run', () => {
+    const { merged, staleIds } = mergeServerAndRegistry(
       [meetingFixture({ meeting_id: 'm_server' })],
-      [summaryFixture({ meeting_id: 'm_local' })],
+      [summaryFixture({ meeting_id: 'm_local', last_seen_at: recentIso() })],
     );
     expect(merged.map((m) => m.meeting_id)).toEqual(['m_server', 'm_local']);
+    expect(staleIds).toEqual([]);
+  });
+
+  it('stale registry-only entries (past grace window) are pruned and returned in staleIds', () => {
+    const { merged, staleIds } = mergeServerAndRegistry(
+      [meetingFixture({ meeting_id: 'm_server' })],
+      [summaryFixture({ meeting_id: 'm_local', last_seen_at: ancientIso })],
+    );
+    expect(merged.map((m) => m.meeting_id)).toEqual(['m_server']);
+    expect(staleIds).toEqual(['m_local']);
   });
 
   it('preserves server ordering', () => {
-    const merged = mergeServerAndRegistry(
+    const { merged } = mergeServerAndRegistry(
       [
         meetingFixture({ meeting_id: 'm_third' }),
         meetingFixture({ meeting_id: 'm_second' }),
@@ -129,17 +142,46 @@ describe('useMeetings', () => {
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_local']);
   });
 
-  it('returns merged list on network success', async () => {
+  it('returns merged list on network success (fresh registry entries survive)', async () => {
     vi.spyOn(client, 'listMeetings').mockResolvedValue({
       items: [meetingFixture({ meeting_id: 'm_server', title: 'Server' })],
       total: 1,
     });
+    const recent = new Date(Date.now() - 30_000).toISOString();
     act(() => {
-      registry.upsert(summaryFixture({ meeting_id: 'm_local', title: 'Local only' }));
+      registry.upsert(
+        summaryFixture({ meeting_id: 'm_local', title: 'Local only', last_seen_at: recent }),
+      );
     });
     const { result } = renderHook(() => useMeetings(), wrap());
     await waitFor(() => expect(result.current.meetings.length).toBe(2));
     expect(result.current.isOffline).toBe(false);
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_server', 'm_local']);
+  });
+
+  it('prunes stale registry entries (past grace window) from localStorage after a successful fetch', async () => {
+    vi.spyOn(client, 'listMeetings').mockResolvedValue({
+      items: [meetingFixture({ meeting_id: 'm_server', title: 'Server' })],
+      total: 1,
+    });
+    act(() => {
+      // ancient timestamp = older than the 5-minute grace window
+      registry.upsert(
+        summaryFixture({
+          meeting_id: 'm_stale',
+          title: 'Was deleted server-side',
+          last_seen_at: '2025-01-01T00:00:00.000Z',
+        }),
+      );
+    });
+    const { result } = renderHook(() => useMeetings(), wrap());
+    // Wait for server-fetch resolution: the merged list contains the server
+    // item (initial loading state would only show the registry's m_stale).
+    await waitFor(() =>
+      expect(result.current.meetings.map((m) => m.meeting_id)).toContain('m_server'),
+    );
+    expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_server']);
+    // After the prune effect runs, the stale id is gone from localStorage too.
+    await waitFor(() => expect(registry.get('m_stale')).toBeNull());
   });
 });

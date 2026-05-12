@@ -10,12 +10,18 @@
  * locally but not on the server (e.g. an in-flight import the server
  * hasn't returned yet).
  */
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listMeetings, type Meeting } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { useWorkspace } from './useWorkspace';
 import { useMeetingsRegistry } from './useMeetingsRegistry';
-import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
+import { remove as removeFromRegistry, type StoredMeetingSummary } from '../lib/meetingsRegistry';
+
+// Registry-only entries this old without server confirmation are stale
+// (the import path upserts immediately on POST, so >5 min unconfirmed
+// means the server-side import failed or the row was deleted).
+const REGISTRY_GRACE_MS = 5 * 60 * 1000;
 
 const REGISTRY_FALLBACK_FIELDS = {
   source_type: 'pasted_transcript' as StoredMeetingSummary['source_type'],
@@ -44,18 +50,29 @@ export function meetingToSummary(
 export function mergeServerAndRegistry(
   serverItems: Meeting[],
   registry: StoredMeetingSummary[],
-): StoredMeetingSummary[] {
+): { merged: StoredMeetingSummary[]; staleIds: string[] } {
   const registryById = new Map(registry.map((r) => [r.meeting_id, r]));
   const serverIds = new Set(serverItems.map((m) => m.meeting_id));
   const merged: StoredMeetingSummary[] = serverItems.map((m) =>
     meetingToSummary(m, registryById.get(m.meeting_id)),
   );
-  // Registry-only entries (e.g. an import the server hasn't returned yet)
-  // are appended after the server's ordered run so the API drives ordering.
+  // Registry-only entries (e.g. an in-flight import the server hasn't
+  // returned yet) are appended within a grace window so optimistic UI
+  // works during the import → finalize race. Older entries are stale —
+  // their server row was deleted or import never landed — and are
+  // returned via `staleIds` so the caller can prune localStorage.
+  const cutoff = Date.now() - REGISTRY_GRACE_MS;
+  const staleIds: string[] = [];
   for (const r of registry) {
-    if (!serverIds.has(r.meeting_id)) merged.push(r);
+    if (serverIds.has(r.meeting_id)) continue;
+    const ts = Date.parse(r.last_seen_at || r.imported_at || '');
+    if (Number.isFinite(ts) && ts >= cutoff) {
+      merged.push(r);
+    } else {
+      staleIds.push(r.meeting_id);
+    }
   }
-  return merged;
+  return { merged, staleIds };
 }
 
 export function useMeetings(): {
@@ -69,14 +86,26 @@ export function useMeetings(): {
     queryFn: () => listMeetings({ workspace_id: workspaceId }),
     retry: false,
   });
+  const serverItems = query.data?.items;
+  const { merged, staleIds } =
+    serverItems !== undefined
+      ? mergeServerAndRegistry(serverItems, registry)
+      : { merged: registry, staleIds: [] as string[] };
+
+  // Side-effect: prune stale registry entries (server is authoritative).
+  // Runs only after a successful server response — never during
+  // offline/loading states, so we never delete entries the server
+  // simply hasn't seen yet because of a network error.
+  useEffect(() => {
+    if (staleIds.length === 0) return;
+    for (const id of staleIds) removeFromRegistry(id);
+  }, [staleIds.join(',')]);
+
   if (query.isError) {
     return { meetings: registry, isOffline: true };
   }
   if (!query.data) {
     return { meetings: registry, isOffline: false };
   }
-  return {
-    meetings: mergeServerAndRegistry(query.data.items, registry),
-    isOffline: false,
-  };
+  return { meetings: merged, isOffline: false };
 }
