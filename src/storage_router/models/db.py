@@ -116,6 +116,15 @@ class MeetingRow(Base):
     # Q1: overwritten every ~60 s by the questioner loop; capped at 5 items.
     # NULL until the first tick succeeds or when no interviewee is set.
     suggested_questions: Mapped[list | None] = mapped_column(JSONB)
+    # Slack bot MVP: persisted finalize summary (filled in `_finalize_inner`
+    # right after the `meeting-finalization` skill returns) so the Slack
+    # notifier can read it without a second LLM call.
+    finalized_summary: Mapped[str | None] = mapped_column(Text)
+    # Slack bot MVP: top-level message ts of the per-meeting Slack post.
+    # Written by `slack_notifier.notify_finalize` after the auto-post lands;
+    # future threaded replies / edits can target it. Internal plumbing —
+    # not exposed in the Meeting contract.
+    slack_thread_ts: Mapped[str | None] = mapped_column(Text)
 
 
 class MeetingSourceRow(Base):

@@ -191,6 +191,11 @@ def _finalize_inner(meeting_id: str) -> None:
             meeting.status = "finalized"
             meeting.finalized_at = datetime.now(UTC)
             meeting.last_finalize_error = None
+            # Slack bot MVP: persist the finalize-summary text so the
+            # Slack notifier (and any future re-share) reads it without
+            # a second LLM call. Commits transactionally with the status
+            # update below.
+            meeting.finalized_summary = result.get("summary", "") or None
             session.commit()
     except Exception as exc:  # noqa: BLE001
         log.exception(
@@ -202,3 +207,26 @@ def _finalize_inner(meeting_id: str) -> None:
                 meeting.status = "ready"
                 meeting.last_finalize_error = f"persist_failed: {exc}"[:1000]
                 session.commit()
+        return
+
+    # Schedule the Slack auto-post AFTER the commit so notify_finalize's
+    # fresh session sees the finalized row. Non-daemon thread so a
+    # SIGTERM mid-POST does not silently drop the message.
+    _schedule_slack_notify(meeting_id)
+
+
+def _schedule_slack_notify(meeting_id: str) -> None:
+    """Spawn a non-daemon thread that runs ``slack_notifier.notify_finalize``.
+
+    Lazy-imports the notifier so unit tests that never touch Slack don't
+    pay the slack-sdk import cost.
+    """
+    from storage_router import slack_notifier
+
+    t = threading.Thread(
+        target=slack_notifier.notify_finalize,
+        args=(meeting_id,),
+        name=f"slack-notify-{meeting_id}",
+        daemon=False,
+    )
+    t.start()

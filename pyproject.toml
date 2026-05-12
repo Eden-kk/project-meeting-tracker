@@ -17,6 +17,13 @@ dependencies = [
   "pydantic-settings==2.6.1",
   "python-multipart==0.0.12",
   "python-dotenv==1.0.1",
+  # Slack bot MVP: sync WebClient for `notify_finalize`, async Socket
+  # Mode client for the @mention handler. Uses the websockets transport
+  # (slack_sdk.socket_mode.websockets); aiohttp is pulled transitively
+  # by slack_sdk.web.async_client and is required for the async client.
+  "slack-sdk>=3.27,<4",
+  "aiohttp>=3.9,<4",
+  "websockets>=12,<14",
 ]
 
 [project.optional-dependencies]

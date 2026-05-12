@@ -92,7 +92,14 @@ def finalize_meeting(
     finalized_at = datetime.now(UTC)
     meeting.status = "finalized"
     meeting.finalized_at = finalized_at
+    # Slack bot MVP: persist the summary text so the Slack notifier can
+    # read it without a second LLM call. Same column populated by the
+    # background auto-finalize path in hermes_runtime._finalize_inner.
+    meeting.finalized_summary = result.get("summary", "") or None
     session.commit()
+
+    # Best-effort Slack auto-post (no-op when env not set).
+    hermes_runtime._schedule_slack_notify(meeting_id)
 
     return FinalizeResponse(
         meeting_id=meeting_id,
