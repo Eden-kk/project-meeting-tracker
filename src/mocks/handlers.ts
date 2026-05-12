@@ -177,6 +177,8 @@ export const handlers = [
       content: input.content,
       speakers: input.speakers ?? [],
       source_chunk_ids: input.source_chunk_ids ?? [],
+      confidence: 0.85,
+      audit_reason: null,
       hidden_at: null,
       superseded_by_id: null,
       created_at: now,

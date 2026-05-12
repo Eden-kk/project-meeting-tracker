@@ -7,6 +7,7 @@ import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
 import { MemoryCardsTab } from '../components/MemoryCardsTab';
 import { AskHermesTab } from '../components/AskHermesTab';
+import { useScrollTarget } from '../hooks/useScrollTarget';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 const TABS: TabDef[] = [
@@ -20,6 +21,7 @@ const TABS: TabDef[] = [
 export default function MeetingReviewPage() {
   const { id = '' } = useParams<{ id: string }>();
   const [tab, setTab] = useState('transcript');
+  const scrollTarget = useScrollTarget();
 
   const meetingQuery = useQuery({
     queryKey: queryKeys.meeting(id),
@@ -45,9 +47,10 @@ export default function MeetingReviewPage() {
 
   function handleEvidenceClick(segmentId: string) {
     setTab('transcript');
-    requestAnimationFrame(() => {
-      document.getElementById('segment-' + segmentId)?.scrollIntoView({ block: 'center' });
-    });
+    // Defer to next frame so the Transcript tab has mounted (it is hidden
+    // when another tab is active) before TranscriptView's scroll effect
+    // looks up the segment node.
+    requestAnimationFrame(() => scrollTarget.goto(segmentId));
   }
 
   if (meetingQuery.isError) {
@@ -86,7 +89,13 @@ export default function MeetingReviewPage() {
         {tab === 'summary' && (
           <p>Summary not yet available — extraction lands in Phase 2.</p>
         )}
-        {tab === 'transcript' && <TranscriptView segments={segments} />}
+        {tab === 'transcript' && (
+          <TranscriptView
+            segments={segments}
+            highlightedSegmentId={scrollTarget.targetSegmentId}
+            highlightTick={scrollTarget.tick}
+          />
+        )}
         {/* Memory + Ask tabs mounted persistently so chat session and filter
             state survive tab toggles within the same meeting. */}
         <div className={tab === 'memory' ? '' : 'hidden'}>

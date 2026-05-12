@@ -82,10 +82,51 @@ def meeting_finalization(
         )
 
     if segments and provider != "anthropic":
-        # OpenAI (or other dispatcher-routed) path: single-pass extraction
-        # using the `meeting-memory-extraction` skill, which instructs the
-        # model to call `create_draft_memory_card` for every finding.
-        # Then chain audit + consolidation exactly as the chunked path does.
+        # OpenAI (or other dispatcher-routed) path.
+        # For large transcripts (> _SINGLE_PASS_CHAR_LIMIT chars of text),
+        # fall back to chunked extraction to stay within the 4096 output-
+        # token cap: the single-pass path feeds the whole transcript as a
+        # tool-call result and then asks the model to emit N card calls in
+        # one response, which silently produces 0 cards when the transcript
+        # is long.  The chunked path passes only one time-window per call.
+        import json as _json
+
+        from .runtime_openai import (
+            _SINGLE_PASS_CHAR_LIMIT,
+            run_chunked_extraction_openai as _run_chunked_openai,
+        )
+
+        # Serialize to measure what actually arrives as the tool-call result.
+        transcript_json_len = len(_json.dumps({"segments": segments}))
+
+        if chunk_minutes is not None and transcript_json_len > _SINGLE_PASS_CHAR_LIMIT:
+            # Large transcript: chunk it.
+            result = _run_chunked_openai(
+                meeting_id,
+                chunk_minutes=chunk_minutes,
+                segments=segments,
+                client=storage_client,
+            )
+            audit_result: dict | None = None
+            consolidation_result: dict | None = None
+            try:
+                audit_result = _run_audit(meeting_id, client=storage_client)
+            except Exception:  # noqa: BLE001
+                pass
+            if (_SKILLS_DIR / "meeting-card-consolidation" / "SKILL.md").is_file():
+                try:
+                    consolidation_result = _run_consolidation(
+                        meeting_id, client=storage_client
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            result["audit"] = audit_result
+            result["consolidation"] = consolidation_result
+            return result
+
+        # Small transcript: single-pass extraction using the full
+        # `meeting-memory-extraction` skill (model calls get_meeting_transcript
+        # itself, then emits create_draft_memory_card calls).
         extraction = _run_skill(
             skill_name="meeting-memory-extraction",
             meeting_id=meeting_id,
@@ -98,8 +139,8 @@ def meeting_finalization(
             if c.get("name") == "create_draft_memory_card"
             and not (isinstance(c.get("result"), dict) and c["result"].get("error"))
         )
-        audit_result: dict | None = None
-        consolidation_result: dict | None = None
+        audit_result = None
+        consolidation_result = None
         try:
             audit_result = _run_audit(meeting_id, client=storage_client)
         except Exception:  # noqa: BLE001

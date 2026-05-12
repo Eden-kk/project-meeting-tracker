@@ -24,6 +24,12 @@ export type MemoryCard = {
   content: string;
   speakers: string[];
   source_chunk_ids: string[];
+  /** Wave 3.2 — agent-audited confidence on [0, 1]. Drives the
+   *  red/yellow/green pill and "needs review" client-side filter. */
+  confidence: number;
+  /** Wave 3.2 — free-text rationale recorded by the audit pass when it
+   *  downgrades a card. Surfaced as a tooltip on the confidence pill. */
+  audit_reason?: string | null;
   hidden_at: string | null;
   superseded_by_id: string | null;
   created_at: string;

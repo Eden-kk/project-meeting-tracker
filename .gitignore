@@ -15,7 +15,7 @@ build/
 htmlcov/
 
 # Voice-ingest specifics (Whisper model cache + audio scratch)
-models/
+/models/
 audio_scratch/
 
 # Node / Vite (frontend)
