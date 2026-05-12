@@ -109,6 +109,13 @@ class MeetingRow(Base):
     # ``[max(0, last_live_extraction_end_ms - overlap_ms), now]`` and then
     # writes ``end_ms`` of the latest segment back here.
     last_live_extraction_end_ms: Mapped[int | None] = mapped_column(BigInteger)
+    # Q1 live-interview-questioner: optional interviewee context set at
+    # meeting creation. When NULL the questioner loop is skipped entirely.
+    interviewee_name: Mapped[str | None] = mapped_column(Text)
+    interviewee_role: Mapped[str | None] = mapped_column(Text)
+    # Q1: overwritten every ~60 s by the questioner loop; capped at 5 items.
+    # NULL until the first tick succeeds or when no interviewee is set.
+    suggested_questions: Mapped[list | None] = mapped_column(JSONB)
 
 
 class MeetingSourceRow(Base):

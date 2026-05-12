@@ -175,6 +175,22 @@ class Meeting(BaseModel):
             "skill refused for too-sparse input."
         ),
     )
+    interviewee_name: str | None = Field(
+        None,
+        description="Q1: optional interviewee name set at meeting creation.",
+    )
+    interviewee_role: str | None = Field(
+        None,
+        description="Q1: optional interviewee role/topic set at meeting creation.",
+    )
+    suggested_questions: list[str] | None = Field(
+        None,
+        description=(
+            "Q1: latest 3-5 interview questions proposed by the "
+            "live-interview-questioner skill; overwritten every ~60 s. "
+            "NULL until the first tick succeeds or when interviewee_name is not set."
+        ),
+    )
 
 
 class ConversationArtifact(BaseModel):

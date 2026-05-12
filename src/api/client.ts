@@ -143,6 +143,8 @@ export type LiveSegmentsResponse = {
   live_summary: string | null;
   /** Wave 8.6: current discussion topic, updated every ~30s. */
   current_topic: string | null;
+  /** Q1: latest 3-5 interview questions; NULL until the first 60s tick fires. */
+  suggested_questions: string[] | null;
   segments: LiveSegment[];
 };
 
@@ -169,10 +171,16 @@ export type LiveChunkAccepted = {
   transcribed: boolean;
 };
 
-export async function createLiveMeeting(title: string): Promise<LiveMeetingCreated> {
+export async function createLiveMeeting(
+  title: string,
+  interviewee_name?: string,
+  interviewee_role?: string,
+): Promise<LiveMeetingCreated> {
   const fd = new FormData();
   fd.append('workspace_id', DEV_WORKSPACE_ID);
   fd.append('title', title);
+  if (interviewee_name) fd.append('interviewee_name', interviewee_name);
+  if (interviewee_role) fd.append('interviewee_role', interviewee_role);
   const res = await api.post<LiveMeetingCreated>('/api/live-meetings', fd);
   return res.data;
 }
