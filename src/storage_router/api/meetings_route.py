@@ -74,7 +74,7 @@ def get_transcript(meeting_id: str, session: Session = Depends(get_session)):
     row = storage.get_meeting(session, meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="meeting not found")
-    if row.status not in {"ready", "finalizing", "finalized"}:
+    if row.status not in {"ready", "finalizing", "finalized", "live"}:
         return JSONResponse(
             status_code=409,
             content={"error": {"code": "not_ready", "current_status": row.status}},

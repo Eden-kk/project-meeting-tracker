@@ -4,7 +4,7 @@ from pathlib import Path
 from alembic import op
 
 revision = "0019_meetings_speaker_label_map"
-down_revision = "89120ca5f335"
+down_revision = "0015_meeting_live_summary"
 branch_labels = None
 depends_on = None
 

@@ -163,6 +163,7 @@ async def test_chunk_offsets_accumulate_across_chunks(
     starts = [s["start_ms"] for s in seg_body["segments"]]
     # Chunk 0 -> offset 0, chunk 1 -> offset 10000 (CHUNK_DURATION_MS).
     # Canned segments start at 0 and 2500 ms within their own chunk.
+    # After offset:
     assert starts == [0, 2500, 10000, 12500]
     assert all(s["source_type"] == "live_voice" for s in seg_body["segments"])
     # Wave 8.3: every sentence row is final on first appearance.
