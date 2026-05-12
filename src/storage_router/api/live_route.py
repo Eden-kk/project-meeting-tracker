@@ -266,32 +266,17 @@ async def receive_chunk(
         logger.warning(
             "voice-ingest failed for meeting=%s seq=%s: %s", meeting_id, seq, exc
         )
-        # Fallback so the UI still progresses; downstream finalize can ignore
-        # rows with confidence=0.0 + the placeholder text.
-        # NOTE: this branch is only reached on an *exception* (unreachable
-        # voice-ingest, HTTP 5xx, etc.).  A chunk that Whisper processes
-        # successfully but returns zero segments (silence / below-threshold
-        # noise) falls through to the segment loop below and produces zero
-        # rows — no placeholder is emitted for silence.
-        fallback = SpeakerSegmentRow(
-            id=new_id("seg"),
-            meeting_id=meeting_id,
-            speaker_id=None,
-            speaker_name=None,
-            start_ms=offset_ms,
-            end_ms=offset_ms + CHUNK_DURATION_MS,
-            text=f"[live chunk {seq} received — transcription pending]",
-            confidence=0.0,
-            source_type="live_voice",
-            is_final=False,
-        )
-        session.add(fallback)
-        session.commit()
+        # Do NOT insert a placeholder row. voice-ingest 500s on silence
+        # (faster-whisper raises on sub-threshold audio), so inserting here
+        # produces "[live chunk N received — transcription pending]" noise for
+        # every silent chunk. Failed chunks are invisible to the user; the live
+        # page renders nothing rather than a stuck placeholder line.
         return {
             "seq": seq,
-            "segments_added": 1,
+            "segments_added": 0,
             "bytes": len(blob),
             "transcribed": False,
+            "error": "voice-ingest failed",
         }
 
     # Whisper returned 0 segments — silence or sub-threshold noise.
