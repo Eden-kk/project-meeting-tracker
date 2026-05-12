@@ -24,7 +24,7 @@ def _resolve_device(raw: str) -> str:
 
 _WORKTREE_ROOT = Path(__file__).resolve().parents[2]
 
-WHISPER_MODEL: str = os.environ.get("WHISPER_MODEL", "medium")
+WHISPER_MODEL: str = os.environ.get("WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE: str = _resolve_device(os.environ.get("WHISPER_DEVICE", "auto"))
 WHISPER_COMPUTE_TYPE: str = os.environ.get(
     "WHISPER_COMPUTE_TYPE",
