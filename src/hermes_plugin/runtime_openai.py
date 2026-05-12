@@ -272,6 +272,139 @@ def run_skill(
     }
 
 
+# ---------------------------------------------------------------------------
+# Dynamic skill runner (per-project orchestrator + subagent path; OpenAI)
+# ---------------------------------------------------------------------------
+#
+# Mirror of ``hermes_plugin.runtime.run_skill_dynamic`` for the OpenAI
+# wire shape. Intentionally a STANDALONE function (not a refactor of
+# ``run_skill``'s loop body) to keep the production meeting-finalization
+# path untouched.
+
+
+def run_skill_dynamic(
+    *,
+    system_prompt: str,
+    tools: dict[str, Any],
+    tool_schemas: list[dict],
+    user_message: str,
+    max_iterations: int = 10,
+    openai_client: Optional["openai.OpenAI"] = None,
+    anthropic_client: Any = None,  # accepted + ignored for signature parity
+    model: Optional[str] = None,
+) -> dict:
+    """OpenAI chat.completions tool-use loop with caller-supplied prompt + tools.
+
+    ``tool_schemas`` here is a list of Anthropic-shape dicts
+    ``{name, description, input_schema}``; this function re-wraps them
+    into the OpenAI ``{type: function, function: {name, description, parameters}}``
+    shape so callers don't have to know which provider they're talking
+    to. Callables are invoked with ``**tool_input`` kwargs (NOT the
+    ``(args, client)`` shape of the static TOOL_REGISTRY).
+    """
+    if model is None:
+        model = "gpt-4o-2024-11-20"
+
+    llm = openai_client if openai_client is not None else _default_openai_client()
+    openai_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t["input_schema"],
+            },
+        }
+        for t in tool_schemas
+    ]
+    messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    tool_calls_log: list[dict] = []
+    iterations = 0
+    last_message: Any = None
+
+    while iterations < max_iterations:
+        iterations += 1
+        response = llm.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=openai_tools,
+            max_tokens=4096,
+        )
+        choices = _attr(response, "choices") or []
+        if not choices:
+            break
+        choice = choices[0]
+        last_message = _attr(choice, "message")
+        finish_reason = _attr(choice, "finish_reason")
+        tool_calls = _attr(last_message, "tool_calls") or []
+
+        assistant_entry: dict = {
+            "role": "assistant",
+            "content": _attr(last_message, "content"),
+        }
+        if tool_calls:
+            assistant_entry["tool_calls"] = _serialize_tool_calls_for_history(tool_calls)
+        messages.append(assistant_entry)
+
+        if finish_reason != "tool_calls" or not tool_calls:
+            break
+
+        for tc in tool_calls:
+            tool_call_id = _attr(tc, "id")
+            function = _attr(tc, "function")
+            name = _attr(function, "name")
+            tool_input = _parse_tool_arguments(_attr(function, "arguments"))
+
+            try:
+                fn = tools[name]
+            except KeyError:
+                result = {
+                    "status_code": 404,
+                    "code": "unknown_tool",
+                    "message": f"No such tool: {name!r}",
+                }
+                tool_calls_log.append({"name": name, "input": tool_input, "result": result})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": _stringify_result(result),
+                    }
+                )
+                continue
+            try:
+                result = fn(**tool_input) if isinstance(tool_input, dict) else fn(tool_input)
+                content_payload: Any = result
+            except ToolError as exc:
+                result = exc.to_payload()
+                content_payload = result
+            except TypeError as exc:
+                result = {
+                    "status_code": 422,
+                    "code": "invalid_input",
+                    "message": str(exc),
+                }
+                content_payload = result
+
+            tool_calls_log.append({"name": name, "input": tool_input, "result": result})
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": _stringify_result(content_payload),
+                }
+            )
+
+    return {
+        "final_text": _final_text(last_message) if last_message is not None else "",
+        "tool_calls": tool_calls_log,
+        "iterations": iterations,
+    }
+
+
 def _build_chunk_tools_param() -> list[dict]:
     """Per-chunk extraction only needs create_draft_memory_card."""
     name = "create_draft_memory_card"

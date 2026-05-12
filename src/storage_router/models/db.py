@@ -28,6 +28,12 @@ class Workspace(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Orchestrator fields (migration 0021). Both nullable; legacy ws_dev
+    # keeps NULL on both. Description is rendered into the orchestrator's
+    # registry prompt; last_meeting_at drives the freshness fan-out rule
+    # in hermes_plugin.orchestrator.
+    description: Mapped[str | None] = mapped_column(Text)
+    last_meeting_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class User(Base):

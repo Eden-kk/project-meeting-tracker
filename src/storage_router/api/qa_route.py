@@ -187,6 +187,19 @@ def qa_workspace(body: WorkspaceQARequest, session: Session = Depends(get_sessio
 
     answer_text = result.get("final_text") or result.get("answer", "")
 
+    # Globalize the citation format. The skill itself emits the legacy
+    # ``[meeting:<m>:card:<c>]`` shape internally; the post-processor
+    # prepends the calling workspace so SPA + Slack consumers only ever
+    # see one canonical form: ``[project:<ws>:meeting:<m>:card:<c>]``.
+    try:
+        from hermes_plugin.orchestrator import prefix_citations_with_project
+
+        answer_text = prefix_citations_with_project(
+            session, answer_text, default_project_id=body.workspace_id
+        )
+    except Exception:  # noqa: BLE001 — best-effort, never blocks the answer.
+        pass
+
     weak_evidence = False
     try:
         parsed_refusal = _json.loads(answer_text)
@@ -195,13 +208,20 @@ def qa_workspace(body: WorkspaceQARequest, session: Session = Depends(get_sessio
     except Exception:
         pass
 
-    # Parse all citation patterns:
-    #   [meeting:<mid>:card:<cid>]
-    #   [meeting:<mid>:seg:<sid>]
+    # Parse citation patterns. After the orchestrator post-processor
+    # ships, the canonical inline form is
+    # ``[project:<ws>:meeting:<m>:card:<c>]`` (or :seg:); both regexes
+    # below accept either the prefixed or the legacy unprefixed shape so
+    # this route stays robust if the post-processor ever no-ops (e.g.
+    # cross-environment meeting id that fails the workspace lookup).
     seen: set[tuple[str, str, str]] = set()
     citations: list[WorkspaceQACitation] = []
-    card_re = re.compile(r"\[meeting:([^:\]]+):card:([^\]]+)\]")
-    seg_re = re.compile(r"\[meeting:([^:\]]+):seg:([^\]]+)\]")
+    card_re = re.compile(
+        r"\[(?:project:[^:\]]+:)?meeting:([^:\]]+):card:([^\]]+)\]"
+    )
+    seg_re = re.compile(
+        r"\[(?:project:[^:\]]+:)?meeting:([^:\]]+):seg:([^\]]+)\]"
+    )
 
     # Pre-resolve meeting titles for the meetings we'll cite.
     meeting_ids: set[str] = set()
