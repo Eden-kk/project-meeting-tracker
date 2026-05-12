@@ -7,6 +7,7 @@ import {
   type LiveSegment,
 } from '../api/client';
 import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
+import { SuggestedQuestionsPanel } from '../components/SuggestedQuestionsPanel';
 import { SpeakerRenameDialog } from '../components/SpeakerRenameDialog';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
@@ -34,12 +35,16 @@ export default function LivePage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [title, setTitle] = useState('Live meeting');
+  const [intervieweeName, setIntervieweeName] = useState('');
+  const [intervieweeRole, setIntervieweeRole] = useState('');
   const [segments, setSegments] = useState<LiveSegment[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Wave 6.3: rolling summary refreshed by the backend every ~120s.
   const [liveSummary, setLiveSummary] = useState<string | null>(null);
   // Wave 8.6: current discussion topic from the topic-tracker tick.
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  // Q1: suggested interview questions from the questioner tick.
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[] | null>(null);
   // Wave 8.6: speaker chip clicked → open rename dialog.
   const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
 
@@ -69,6 +74,7 @@ export default function LivePage() {
       // pass.
       setLiveSummary(resp.live_summary ?? null);
       setCurrentTopic(resp.current_topic ?? null);
+      setSuggestedQuestions(resp.suggested_questions ?? null);
       if (resp.segments.length === 0) return;
       lastSegIdRef.current = resp.segments[resp.segments.length - 1].segment_id;
       setSegments((prev) => [...prev, ...resp.segments]);
@@ -94,6 +100,7 @@ export default function LivePage() {
       const resp = await listLiveSegments(id, null);
       setLiveSummary(resp.live_summary ?? null);
       setCurrentTopic(resp.current_topic ?? null);
+      setSuggestedQuestions(resp.suggested_questions ?? null);
       // REPLACE — not append — so we don't double-render prior segments.
       lastSegIdRef.current =
         resp.segments.length > 0
@@ -120,7 +127,11 @@ export default function LivePage() {
       return;
     }
     try {
-      const created = await createLiveMeeting(title.trim() || 'Live meeting');
+      const created = await createLiveMeeting(
+        title.trim() || 'Live meeting',
+        intervieweeName.trim() || undefined,
+        intervieweeRole.trim() || undefined,
+      );
       meetingRef.current = created.meeting_id;
       setMeetingId(created.meeting_id);
       seqRef.current = 0;
@@ -128,6 +139,7 @@ export default function LivePage() {
       setSegments([]);
       setLiveSummary(null);
       setCurrentTopic(null);
+      setSuggestedQuestions(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -175,7 +187,7 @@ export default function LivePage() {
       phaseRef.current = 'error';
       setPhase('error');
     }
-  }, [startPolling, title]);
+  }, [intervieweeName, intervieweeRole, startPolling, title]);
 
   const handleStop = useCallback(async () => {
     phaseRef.current = 'ending';
@@ -219,6 +231,32 @@ export default function LivePage() {
       </header>
 
       <section className="space-y-3 rounded border border-gray-200 bg-white p-4">
+        <label className="block text-sm font-medium" htmlFor="live-interviewee-name">
+          Interviewee name
+        </label>
+        <input
+          id="live-interviewee-name"
+          type="text"
+          value={intervieweeName}
+          onChange={(e) => setIntervieweeName(e.target.value)}
+          disabled={phase === 'recording' || phase === 'ending'}
+          placeholder="e.g. Alice Smith (optional)"
+          className="w-full rounded border border-gray-300 p-2 disabled:bg-gray-100"
+        />
+
+        <label className="block text-sm font-medium" htmlFor="live-interviewee-role">
+          Role/topic
+        </label>
+        <input
+          id="live-interviewee-role"
+          type="text"
+          value={intervieweeRole}
+          onChange={(e) => setIntervieweeRole(e.target.value)}
+          disabled={phase === 'recording' || phase === 'ending'}
+          placeholder="e.g. staff engineer (optional)"
+          className="w-full rounded border border-gray-300 p-2 disabled:bg-gray-100"
+        />
+
         <label className="block text-sm font-medium" htmlFor="live-title">
           Title
         </label>
@@ -306,6 +344,15 @@ export default function LivePage() {
         meetingId={meetingId}
         active={phase === 'recording'}
       />
+
+      {/* Q1: suggested interview questions panel; only meaningful when
+          intervieweeName was set on the start form. */}
+      {intervieweeName.trim() && (
+        <SuggestedQuestionsPanel
+          questions={suggestedQuestions}
+          active={phase === 'recording'}
+        />
+      )}
 
       <section className="rounded border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-lg font-medium">Live transcript</h2>
