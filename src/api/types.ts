@@ -849,6 +849,12 @@ export interface components {
              *     fails; status reverts to `ready` so the user can re-trigger.
              */
             last_finalize_error?: string | null;
+            /**
+             * @description Summary paragraph produced by the meeting-finalization Hermes skill,
+             *     persisted at finalize time so the SPA Summary tab can render it without
+             *     re-invoking the LLM. NULL until the first successful finalize completes.
+             */
+            finalized_summary?: string | null;
         };
         /** @description Mirrors schemas/meeting_pattern.schema.json */
         MeetingPattern: {

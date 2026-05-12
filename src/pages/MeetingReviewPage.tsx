@@ -86,9 +86,16 @@ export default function MeetingReviewPage() {
       </header>
 
       <Tabs tabs={TABS} value={tab} onChange={setTab}>
-        {tab === 'summary' && (
-          <p>Summary not yet available — extraction lands in Phase 2.</p>
-        )}
+        {tab === 'summary' &&
+          (meeting.finalized_summary ? (
+            <p className="whitespace-pre-line text-sm leading-relaxed text-gray-900">
+              {meeting.finalized_summary}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Summary will appear after Hermes finalizes this meeting.
+            </p>
+          ))}
         {tab === 'transcript' && (
           <TranscriptView
             segments={segments}

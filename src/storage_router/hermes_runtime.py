@@ -188,6 +188,13 @@ def _finalize_inner(meeting_id: str) -> None:
                     created_by_agent=card.created_by_agent,
                 )
 
+            # Persist the finalize-skill summary so the SPA's Summary tab
+            # can render it without re-invoking the LLM. Stored even if the
+            # skill returned an empty string — caller can distinguish "no
+            # summary yet" (NULL) from "summary was empty" (empty string).
+            summary = result.get("summary")
+            if isinstance(summary, str):
+                meeting.finalized_summary = summary
             meeting.status = "finalized"
             meeting.finalized_at = datetime.now(UTC)
             meeting.last_finalize_error = None
