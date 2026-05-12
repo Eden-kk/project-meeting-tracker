@@ -7,6 +7,7 @@ import {
   type LiveSegment,
 } from '../api/client';
 import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
+import { SuggestedQuestionsPanel } from '../components/SuggestedQuestionsPanel';
 import { SpeakerRenameDialog } from '../components/SpeakerRenameDialog';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
@@ -40,6 +41,8 @@ export default function LivePage() {
   const [liveSummary, setLiveSummary] = useState<string | null>(null);
   // Wave 8.6: current discussion topic from the topic-tracker tick.
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  // Q1: suggested interview questions from the questioner tick.
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[] | null>(null);
   // Wave 8.6: speaker chip clicked → open rename dialog.
   const [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null);
 
@@ -69,6 +72,7 @@ export default function LivePage() {
       // pass.
       setLiveSummary(resp.live_summary ?? null);
       setCurrentTopic(resp.current_topic ?? null);
+      setSuggestedQuestions(resp.suggested_questions ?? null);
       if (resp.segments.length === 0) return;
       lastSegIdRef.current = resp.segments[resp.segments.length - 1].segment_id;
       setSegments((prev) => [...prev, ...resp.segments]);
@@ -94,6 +98,7 @@ export default function LivePage() {
       const resp = await listLiveSegments(id, null);
       setLiveSummary(resp.live_summary ?? null);
       setCurrentTopic(resp.current_topic ?? null);
+      setSuggestedQuestions(resp.suggested_questions ?? null);
       // REPLACE — not append — so we don't double-render prior segments.
       lastSegIdRef.current =
         resp.segments.length > 0
@@ -128,6 +133,7 @@ export default function LivePage() {
       setSegments([]);
       setLiveSummary(null);
       setCurrentTopic(null);
+      setSuggestedQuestions(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -304,6 +310,13 @@ export default function LivePage() {
           tick produces them. Stops polling when the meeting ends. */}
       <LiveDraftCardsPanel
         meetingId={meetingId}
+        active={phase === 'recording'}
+      />
+
+      {/* Q1: suggested questions panel; populated by the per-meeting
+          questioner loop ~60s after the meeting starts. */}
+      <SuggestedQuestionsPanel
+        questions={suggestedQuestions}
         active={phase === 'recording'}
       />
 

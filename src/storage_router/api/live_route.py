@@ -101,6 +101,9 @@ async def create_live_meeting(
     cancelled by `end_live_meeting`. Spawn is best-effort: if the
     asyncio scheduler is unavailable (synchronous test client without
     a running loop) we swallow and log rather than fail the route.
+
+    Q1: also spawns the `live-interview-questioner` tick loop for every
+    live meeting; suggested questions land on `meetings.suggested_questions`.
     """
     artifact = storage.create_artifact(
         session,
@@ -128,6 +131,17 @@ async def create_live_meeting(
     except RuntimeError as exc:  # no running event loop (sync test client)
         logger.info(
             "live-topic-tracker not started for %s (no event loop): %s",
+            meeting.id,
+            exc,
+        )
+    # Q1: start the interview-questioner loop for every live meeting.
+    try:
+        from storage_router.live_interview_questioner import start_questioner_loop
+
+        start_questioner_loop(request.app, meeting.id)
+    except RuntimeError as exc:  # no running event loop (sync test client)
+        logger.info(
+            "live-interview-questioner not started for %s (no event loop): %s",
             meeting.id,
             exc,
         )
@@ -318,6 +332,10 @@ async def end_live_meeting(
     # cards that the live-extraction overlap window emitted twice.
     live_extraction.stop_for(meeting_id)
     live_extraction.stop_extraction_for(meeting_id)
+    # Q1: cancel the questioner loop (idempotent — no-op when never started).
+    from storage_router.live_interview_questioner import cancel_questioner_loop
+
+    cancel_questioner_loop(request.app, meeting_id)
     return {"meeting_id": meeting_id, "status": meeting.status}
 
 
@@ -367,6 +385,9 @@ def list_segments(
         # Wave 8.6: bundle the current topic so the UI can display it
         # on the same 2s poll cadence without a separate round-trip.
         "current_topic": meeting.current_topic,
+        # Q1: latest suggested interview questions from the questioner loop.
+        # NULL until the first 60-s tick fires or when interviewee_name is unset.
+        "suggested_questions": meeting.suggested_questions,
         "segments": [
             {
                 "segment_id": r.id,

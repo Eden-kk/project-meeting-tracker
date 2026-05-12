@@ -25,6 +25,7 @@ __all__ = [
     "live_topic_tracker",
     "live_summary",
     "live_extraction",
+    "live_interview_questions",
 ]
 
 
@@ -502,6 +503,66 @@ def workspace_qa(workspace_id: str, question: str) -> dict:
         workspace_id=workspace_id,
         user_question=question,
     )
+
+
+def live_interview_questions(
+    meeting_id: str,
+    interviewee_name: str,
+    interviewee_role: str | None,
+    transcript_snippet: str,
+) -> dict:
+    """Storage-router-facing entrypoint for the 60-s interview-questioner tick.
+
+    The caller has already fetched `interviewee_name`, `interviewee_role`, and
+    the last ~3 min of finalized sentences. We invoke the
+    `live-interview-questioner` skill (bound to read-only workspace tools) and
+    return `{"questions": list[str]}`. The skill is expected to return a JSON
+    object in `final_text`; we parse it here. If parsing fails we return
+    `{"questions": []}` so the storage-router can write gracefully.
+
+    Provider-routing: when `LLM_PROVIDER=openai` the skill is dispatched
+    through `runtime_openai`; otherwise the Anthropic bounded-tool loop in
+    `runtime` is used.
+    """
+    import json as _json
+    import os
+
+    provider = (os.environ.get("LLM_PROVIDER") or "anthropic").strip().lower()
+
+    bootstrap = (
+        f"interviewee_name: {interviewee_name}\n"
+        f"interviewee_role: {interviewee_role or 'not specified'}\n"
+        f"meeting_id: {meeting_id}\n"
+        f"\n--- recent transcript ---\n{transcript_snippet}\n--- end transcript ---"
+    )
+
+    if provider != "anthropic":
+        from .runtime_openai import run_skill as _run_skill_openai
+
+        result = _run_skill_openai("live-interview-questioner", meeting_id, bootstrap)
+    else:
+        from .llm import run_skill as _run_skill
+
+        result = _run_skill(
+            skill_name="live-interview-questioner",
+            meeting_id=meeting_id,
+            user_question=bootstrap,
+        )
+
+    raw = (result.get("final_text") or "").strip() if isinstance(result, dict) else ""
+    # Strip ```json fences if present.
+    import re as _re
+    candidate = raw
+    if candidate.startswith("```"):
+        candidate = _re.sub(r"^```(?:json)?\s*", "", candidate)
+        candidate = _re.sub(r"\s*```\s*$", "", candidate)
+    try:
+        parsed = _json.loads(candidate)
+        if isinstance(parsed, dict) and isinstance(parsed.get("questions"), list):
+            return {"questions": parsed["questions"]}
+    except (ValueError, _json.JSONDecodeError):
+        pass
+    return {"questions": []}
 
 
 def __getattr__(name: str):
