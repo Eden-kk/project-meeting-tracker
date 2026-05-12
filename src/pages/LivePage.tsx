@@ -6,6 +6,7 @@ import {
   uploadLiveChunk,
   type LiveSegment,
 } from '../api/client';
+import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
 
@@ -34,6 +35,10 @@ export default function LivePage() {
   const [title, setTitle] = useState('Live meeting');
   const [segments, setSegments] = useState<LiveSegment[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Wave 6.3: rolling summary refreshed by the backend every ~120s.
+  // The segments-poll response carries it, so we don't need a separate
+  // poll loop. NULL until the first agent tick succeeds.
+  const [liveSummary, setLiveSummary] = useState<string | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -55,6 +60,11 @@ export default function LivePage() {
     if (!id) return;
     try {
       const resp = await listLiveSegments(id, lastSegIdRef.current);
+      // Wave 6.3: rolling summary is bundled into every segments
+      // response. Update unconditionally — even on a tick that adds
+      // zero new segments — so the panel reflects the latest agent
+      // pass.
+      setLiveSummary(resp.live_summary ?? null);
       if (resp.segments.length === 0) return;
       lastSegIdRef.current = resp.segments[resp.segments.length - 1].segment_id;
       setSegments((prev) => [...prev, ...resp.segments]);
@@ -85,6 +95,7 @@ export default function LivePage() {
       seqRef.current = 0;
       lastSegIdRef.current = null;
       setSegments([]);
+      setLiveSummary(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -220,6 +231,39 @@ export default function LivePage() {
 
         {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
       </section>
+
+      {/* Wave 6.3: rolling agent summary, refreshed every ~120s by the
+          backend. The same JSON field arrives on every segments-poll
+          response, so we don't run a second polling loop. */}
+      <section
+        className="rounded border border-blue-200 bg-blue-50 p-4"
+        data-testid="live-summary-panel"
+      >
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-blue-900">
+          Rolling summary
+        </h2>
+        {liveSummary ? (
+          <p
+            className="whitespace-pre-line text-sm text-blue-950"
+            data-testid="live-summary-text"
+          >
+            {liveSummary}
+          </p>
+        ) : (
+          <p className="text-sm italic text-blue-700">
+            {phase === 'recording'
+              ? 'The agent will produce a summary once it has heard ~2 minutes of conversation.'
+              : 'No summary yet — start the meeting to begin.'}
+          </p>
+        )}
+      </section>
+
+      {/* Wave 6.4: side panel that lists cards as the live extraction
+          tick produces them. Stops polling when the meeting ends. */}
+      <LiveDraftCardsPanel
+        meetingId={meetingId}
+        active={phase === 'recording'}
+      />
 
       <section className="rounded border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-lg font-medium">Live transcript</h2>

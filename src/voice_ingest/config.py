@@ -47,15 +47,4 @@ MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 
 # as a sentence. Stops long mid-sentence pauses from stalling the live UI.
 PUNCT_MAX_WAIT_MS: int = int(os.environ.get("PUNCT_MAX_WAIT_MS", "8000"))
 
-# Wave 8.5: how long the diarization gate waits for `LiveDiarizer.assign`
-# to settle a label before falling back to `speaker_id="unknown"`. The
-# fallback row still goes through — the gate ensures the live UI never
-# stalls when pyannote is slow or unavailable.
-DIARIZATION_GATE_TIMEOUT_MS: int = int(
-    os.environ.get("DIARIZATION_GATE_TIMEOUT_MS", "10000")
-)
-DIARIZATION_GATE_POLL_MS: int = int(
-    os.environ.get("DIARIZATION_GATE_POLL_MS", "500")
-)
-
 WORKTREE_ROOT: Path = _WORKTREE_ROOT

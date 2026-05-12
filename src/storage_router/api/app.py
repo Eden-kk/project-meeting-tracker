@@ -68,10 +68,6 @@ def create_app() -> FastAPI:
     from storage_router.sentence_buffer import SentenceBuffer  # noqa: E402
 
     app.state.sentence_buffers: dict[str, SentenceBuffer] = {}
-    # Wave 8.5 — per-meeting LiveDiarizer instances. Created lazily by
-    # `live_route.receive_chunk`, popped on `end_live_meeting`. Each
-    # instance holds the rolling 30-s PCM buffer for its meeting.
-    app.state.live_diarizers: dict = {}
 
     @app.on_event("startup")
     def _startup() -> None:

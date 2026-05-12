@@ -139,7 +139,25 @@ export type LiveSegment = {
 export type LiveSegmentsResponse = {
   meeting_id: string;
   status: string;
+  /** Wave 6.3: rolling agent summary (NULL until the first ~120s tick fires). */
+  live_summary: string | null;
   segments: LiveSegment[];
+};
+
+export type LiveSummaryResponse = {
+  meeting_id: string;
+  status: string;
+  summary: string | null;
+};
+
+export type LiveDraftCardsResponse = {
+  meeting_id: string;
+  status: string;
+  /** MemoryCard rows in creation order. The wire field name is
+   * ``speakers_json``; we normalise to ``speakers`` so the existing
+   * ``MemoryCardItem`` component can consume the result without a
+   * second adapter. */
+  items: MemoryCard[];
 };
 
 export type LiveChunkAccepted = {
@@ -187,6 +205,50 @@ export async function listLiveSegments(
     { params: sinceId ? { since_id: sinceId } : undefined },
   );
   return res.data;
+}
+
+/**
+ * Wave 6.3: standalone read of the rolling agent summary. The same
+ * value is bundled into the segments-poll response, so most callers
+ * only need this when they want to refresh the summary without paying
+ * the segments-list cost.
+ */
+export async function getLiveSummary(
+  meetingId: string,
+): Promise<LiveSummaryResponse> {
+  const res = await api.get<LiveSummaryResponse>(
+    `/api/live-meetings/${meetingId}/summary`,
+  );
+  return res.data;
+}
+
+/**
+ * Wave 6.4: poll for memory cards created by the live extraction tick.
+ *
+ * Pass ``sinceIso`` (the latest ``created_at`` you've already seen) to
+ * skip rows you already rendered. Server-side filter is on
+ * ``created_at > since`` so the first call (with ``sinceIso=null``)
+ * returns everything.
+ */
+export async function listLiveDraftCards(
+  meetingId: string,
+  sinceIso: string | null = null,
+): Promise<LiveDraftCardsResponse> {
+  type RawCard = MemoryCard & { speakers_json?: string[] | null };
+  const res = await api.get<{
+    meeting_id: string;
+    status: string;
+    items: RawCard[];
+  }>(`/api/live-meetings/${meetingId}/draft-cards`, {
+    params: sinceIso ? { since_iso: sinceIso } : undefined,
+  });
+  // Mirror the normalisation that ``listMeetingCards`` does so callers
+  // can rely on the ``speakers`` field shape.
+  const items: MemoryCard[] = res.data.items.map((card) => ({
+    ...card,
+    speakers: card.speakers ?? card.speakers_json ?? [],
+  }));
+  return { ...res.data, items };
 }
 
 export type CardSearchHit = {
