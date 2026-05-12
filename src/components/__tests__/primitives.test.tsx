@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { EmptyState } from '../EmptyState';
 import { StatChip } from '../StatChip';
 import { SourceIcon, sourceLabel } from '../SourceIcon';
@@ -9,6 +11,19 @@ import { StatusPill } from '../StatusPill';
 import { MeetingCard } from '../MeetingCard';
 import { MeetingTable } from '../MeetingTable';
 import type { StoredMeetingSummary } from '../../lib/meetingsRegistry';
+
+function wsWrap(children: ReactNode) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/ws/ws_dev/']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/*" element={<>{children}</>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
 
 function fix(id: string, overrides: Partial<StoredMeetingSummary> = {}): StoredMeetingSummary {
   return {
@@ -63,12 +78,8 @@ describe('StatusPill', () => {
 
 describe('MeetingCard', () => {
   it('links to the meeting detail page and shows title + status', () => {
-    render(
-      <MemoryRouter>
-        <MeetingCard meeting={fix('m1', { title: 'Q1 sync' })} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/meetings/m1');
+    render(wsWrap(<MeetingCard meeting={fix('m1', { title: 'Q1 sync' })} />));
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/ws/ws_dev/meetings/m1');
     expect(screen.getByText('Q1 sync')).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
   });
@@ -78,11 +89,11 @@ describe('MeetingTable', () => {
   it('lists rows with title links and toggles sort on header click', async () => {
     const user = userEvent.setup();
     render(
-      <MemoryRouter>
-        <MeetingTable meetings={[fix('m1', { title: 'Apple' }), fix('m2', { title: 'Banana' })]} />
-      </MemoryRouter>,
+      wsWrap(
+        <MeetingTable meetings={[fix('m1', { title: 'Apple' }), fix('m2', { title: 'Banana' })]} />,
+      ),
     );
-    expect(screen.getByRole('link', { name: 'Apple' })).toHaveAttribute('href', '/meetings/m1');
+    expect(screen.getByRole('link', { name: 'Apple' })).toHaveAttribute('href', '/ws/ws_dev/meetings/m1');
     await user.click(screen.getByRole('button', { name: /title/i }));
     const rows = screen.getAllByRole('row');
     // header row + data rows; first data row should be Apple in asc

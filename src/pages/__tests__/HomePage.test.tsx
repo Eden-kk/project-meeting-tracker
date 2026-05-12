@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HomePage from '../HomePage';
 import * as client from '../../api/client';
@@ -39,10 +39,21 @@ function summary(id: string, overrides: Partial<registry.StoredMeetingSummary> =
 
 function renderHome() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // HomePage (and everything it consumes — useMeetings, useWorkspace,
+  // HomeMemoryItemsCard) reads workspaceId from useParams. Mount under
+  // the /ws/:workspaceId route so the param resolves.
+  vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+    items: [
+      { id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null },
+    ],
+    total: 1,
+  });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <HomePage />
+      <MemoryRouter initialEntries={['/ws/ws_dev']}>
+        <Routes>
+          <Route path="/ws/:workspaceId" element={<HomePage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -63,7 +74,7 @@ describe('HomePage', () => {
     vi.spyOn(client, 'listMeetings').mockResolvedValue({ items: [], total: 0 });
     renderHome();
     expect(await screen.findByRole('heading', { name: /no meetings yet/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /^new import$/i })).toHaveAttribute('href', '/import');
+    expect(screen.getByRole('link', { name: /^new import$/i })).toHaveAttribute('href', '/ws/ws_dev/import');
   });
 
   it('renders stats and recent cards from the API list', async () => {
@@ -80,7 +91,7 @@ describe('HomePage', () => {
     expect(screen.getByText('3')).toBeInTheDocument();
     expect(screen.getByText('1 / 1 / 1')).toBeInTheDocument();
     // First server entry comes first.
-    const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
+    const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/ws/ws_dev/meetings/'));
     expect(cards[0]).toHaveTextContent('C');
   });
 
@@ -162,7 +173,7 @@ describe('HomePage', () => {
     // Header "View all" links go to the dashboards.
     const viewAllLinks = screen.getAllByRole('link', { name: /view all/i });
     expect(viewAllLinks.map((a) => a.getAttribute('href'))).toEqual(
-      expect.arrayContaining(['/action-items', '/open-questions']),
+      expect.arrayContaining(['/ws/ws_dev/action-items', '/ws/ws_dev/open-questions']),
     );
   });
 
@@ -175,7 +186,7 @@ describe('HomePage', () => {
     });
     renderHome();
     await waitFor(() => {
-      const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/meetings/'));
+      const cards = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/ws/ws_dev/meetings/'));
       expect(cards).toHaveLength(6);
     });
   });

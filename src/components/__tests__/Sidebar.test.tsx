@@ -1,31 +1,48 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MobileSidebar, Sidebar } from '../Sidebar';
+import * as client from '../../api/client';
+
+function renderUnderWorkspace(component: JSX.Element) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+    items: [{ id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null }],
+    total: 1,
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/ws/ws_dev']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/*" element={component} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
 
 describe('Sidebar (desktop)', () => {
-  it('renders nav links', () => {
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Meetings' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Import' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+  it('renders nav links prefixed with the active workspace id', () => {
+    renderUnderWorkspace(<Sidebar />);
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/ws/ws_dev/');
+    expect(screen.getByRole('link', { name: 'Meetings' })).toHaveAttribute('href', '/ws/ws_dev/meetings');
+    expect(screen.getByRole('link', { name: 'Import' })).toHaveAttribute('href', '/ws/ws_dev/import');
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/ws/ws_dev/settings');
   });
 });
 
 describe('MobileSidebar', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
   it('opens drawer on click and closes on Escape, returning focus to toggle', async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <MobileSidebar />
-      </MemoryRouter>,
-    );
+    renderUnderWorkspace(<MobileSidebar />);
     const toggle = screen.getByRole('button', { name: /open menu/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
 

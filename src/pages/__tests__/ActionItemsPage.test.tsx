@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ActionItemsPage from '../ActionItemsPage';
 import * as client from '../../api/client';
@@ -26,10 +26,16 @@ function row(overrides: Partial<ActionItemRow> = {}): ActionItemRow {
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+    items: [{ id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null }],
+    total: 1,
+  });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <ActionItemsPage />
+      <MemoryRouter initialEntries={['/ws/ws_dev/action-items']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/action-items" element={<ActionItemsPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -47,7 +53,7 @@ describe('ActionItemsPage', () => {
     });
     renderPage();
     const titleLink = await screen.findByRole('link', { name: /ship login flow/i });
-    expect(titleLink).toHaveAttribute('href', '/meetings/m_1#seg:seg_001');
+    expect(titleLink).toHaveAttribute('href', '/ws/ws_dev/meetings/m_1#seg:seg_001');
     expect(screen.getByText('Sprint planning')).toBeInTheDocument();
   });
 

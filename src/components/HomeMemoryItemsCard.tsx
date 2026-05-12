@@ -7,7 +7,7 @@ import type {
 } from '../api/memory_cards.types';
 import type { listActionItems } from '../api/client';
 import type { queryKeys } from '../api/queryKeys';
-import { DEV_WORKSPACE_ID } from '../lib/constants';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { EmptyState } from './EmptyState';
 
 const HOME_LIMIT = 8;
@@ -41,8 +41,9 @@ export function HomeMemoryItemsCard({
   queryFn,
   queryKey,
 }: Props) {
+  const { workspaceId } = useWorkspace();
   const params: ListActionItemsParams = {
-    workspace_id: DEV_WORKSPACE_ID,
+    workspace_id: workspaceId,
     limit: HOME_LIMIT,
   };
 
@@ -85,12 +86,12 @@ export function HomeMemoryItemsCard({
         <EmptyState
           title={emptyTitle}
           body={emptyBody}
-          cta={{ to: '/import', label: 'Import a meeting' }}
+          cta={{ to: `/ws/${workspaceId}/import`, label: 'Import a meeting' }}
         />
       ) : (
         <ul className="divide-y divide-gray-100">
           {items.map((row) => (
-            <HomeMemoryItemRow key={row.memory_card_id} row={row} />
+            <HomeMemoryItemRow key={row.memory_card_id} row={row} workspaceId={workspaceId} />
           ))}
         </ul>
       )}
@@ -98,11 +99,10 @@ export function HomeMemoryItemsCard({
   );
 }
 
-function HomeMemoryItemRow({ row }: { row: ActionItemRow }) {
+function HomeMemoryItemRow({ row, workspaceId }: { row: ActionItemRow; workspaceId: string }) {
   const segId = row.source_chunk_ids[0];
-  const href = segId
-    ? `/meetings/${row.meeting_id}#seg:${segId}`
-    : `/meetings/${row.meeting_id}`;
+  const meetingBase = `/ws/${workspaceId}/meetings/${row.meeting_id}`;
+  const href = segId ? `${meetingBase}#seg:${segId}` : meetingBase;
   const display = row.title?.trim() || excerpt(row.content);
   const meta = [
     row.meeting_title || row.meeting_id,

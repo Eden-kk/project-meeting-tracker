@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useMeetings, mergeServerAndRegistry, meetingToSummary } from '../useMeetings';
 import * as client from '../../api/client';
@@ -40,8 +41,18 @@ function summaryFixture(overrides: Partial<StoredMeetingSummary> = {}): StoredMe
 
 function wrap(): { wrapper: ({ children }: { children: ReactNode }) => JSX.Element } {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // useMeetings now reads workspaceId from useParams() via useWorkspace,
+  // so the hook must render inside a /ws/:workspaceId route.
   return {
-    wrapper: ({ children }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>,
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/ws/ws_dev']}>
+          <Routes>
+            <Route path="/ws/:workspaceId" element={<>{children}</>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    ),
   };
 }
 
@@ -113,7 +124,7 @@ describe('useMeetings', () => {
     act(() => {
       registry.upsert(summaryFixture({ meeting_id: 'm_local', title: 'Local only' }));
     });
-    const { result } = renderHook(() => useMeetings('ws_dev'), wrap());
+    const { result } = renderHook(() => useMeetings(), wrap());
     await waitFor(() => expect(result.current.isOffline).toBe(true));
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_local']);
   });
@@ -126,7 +137,7 @@ describe('useMeetings', () => {
     act(() => {
       registry.upsert(summaryFixture({ meeting_id: 'm_local', title: 'Local only' }));
     });
-    const { result } = renderHook(() => useMeetings('ws_dev'), wrap());
+    const { result } = renderHook(() => useMeetings(), wrap());
     await waitFor(() => expect(result.current.meetings.length).toBe(2));
     expect(result.current.isOffline).toBe(false);
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_server', 'm_local']);

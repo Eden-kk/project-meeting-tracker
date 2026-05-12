@@ -4,12 +4,15 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getMeeting } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { POLL_INTERVAL_MS } from '../lib/constants';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { StatusTimeline } from '../components/StatusTimeline';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 export default function ProcessingPage() {
+  const { workspaceId } = useWorkspace();
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const wsHome = `/ws/${workspaceId}/`;
 
   const query = useQuery({
     queryKey: queryKeys.meeting(id),
@@ -35,15 +38,15 @@ export default function ProcessingPage() {
       query.data.status === 'finalizing' ||
       query.data.status === 'finalized'
     ) {
-      navigate(`/meetings/${id}`, { replace: true });
+      navigate(`/ws/${workspaceId}/meetings/${id}`, { replace: true });
     }
-  }, [query.data, id, navigate]);
+  }, [query.data, id, navigate, workspaceId]);
 
   if (query.isError) {
     return (
       <div className="mx-auto max-w-xl rounded border border-red-200 bg-red-50 p-4">
         <p className="font-medium text-red-700">Meeting not found.</p>
-        <Link to="/" className="text-sm text-blue-600 underline">
+        <Link to={wsHome} className="text-sm text-blue-600 underline">
           Back to import
         </Link>
       </div>
@@ -63,7 +66,7 @@ export default function ProcessingPage() {
       {status === 'failed' && (
         <div className="rounded border border-red-200 bg-red-50 p-4">
           <p className="font-medium text-red-700">Processing failed.</p>
-          <Link to="/" className="text-sm text-blue-600 underline">
+          <Link to={wsHome} className="text-sm text-blue-600 underline">
             Try again
           </Link>
         </div>

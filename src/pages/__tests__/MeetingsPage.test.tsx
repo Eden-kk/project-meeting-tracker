@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MeetingsPage from '../MeetingsPage';
 import * as client from '../../api/client';
@@ -25,10 +25,16 @@ function meetingFixture(overrides: Partial<Meeting> = {}): Meeting {
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+    items: [{ id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null }],
+    total: 1,
+  });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <MeetingsPage />
+      <MemoryRouter initialEntries={['/ws/ws_dev/meetings']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/meetings" element={<MeetingsPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -125,7 +131,7 @@ describe('MeetingsPage', () => {
     await user.click(screen.getByRole('button', { name: /^cards$/i }));
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     const links = screen.getAllByRole('link');
-    expect(links.some((l) => l.getAttribute('href') === '/meetings/m1')).toBe(true);
+    expect(links.some((l) => l.getAttribute('href') === '/ws/ws_dev/meetings/m1')).toBe(true);
   });
 
   it('shows "no meetings match" when filters exclude every entry', async () => {
