@@ -42,4 +42,9 @@ MODEL_CACHE_DIR: Path = Path(
 
 MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
 
+# Wave 8.3: how long the per-meeting sentence buffer in storage-router holds
+# a trailing fragment without terminal punctuation before force-flushing it
+# as a sentence. Stops long mid-sentence pauses from stalling the live UI.
+PUNCT_MAX_WAIT_MS: int = int(os.environ.get("PUNCT_MAX_WAIT_MS", "8000"))
+
 WORKTREE_ROOT: Path = _WORKTREE_ROOT

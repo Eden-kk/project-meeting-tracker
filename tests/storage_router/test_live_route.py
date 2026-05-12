@@ -39,6 +39,12 @@ def _canned_transcript(meeting_id: str = "ignored") -> NormalizedTranscript:
 
     Timestamps are 0-based for the chunk, exactly as voice-ingest emits.
     The route under test must shift them by chunk index * CHUNK_DURATION_MS.
+
+    Wave 8.3: each segment ends with terminal punctuation so the per-meeting
+    sentence buffer in `live_route` emits one sentence per segment. Without
+    a terminator the buffer would (correctly) hold the fragment for the
+    next chunk; the legacy contract of "one row per Whisper segment"
+    no longer holds.
     """
     return NormalizedTranscript(
         meeting_id=meeting_id,
@@ -49,7 +55,7 @@ def _canned_transcript(meeting_id: str = "ignored") -> NormalizedTranscript:
                 speaker_name="Alice",
                 start_ms=0,
                 end_ms=2400,
-                text="hello world",
+                text="hello world.",
                 confidence=0.93,
                 source_type=SourceType.voice_file,
                 is_final=True,
@@ -60,7 +66,7 @@ def _canned_transcript(meeting_id: str = "ignored") -> NormalizedTranscript:
                 speaker_name="Bob",
                 start_ms=2500,
                 end_ms=4800,
-                text="hi there",
+                text="hi there!",
                 confidence=0.88,
                 source_type=SourceType.voice_file,
                 is_final=True,
@@ -150,16 +156,19 @@ async def test_chunk_offsets_accumulate_across_chunks(
     seg_body = (
         await client.get(f"/api/live-meetings/{meeting_id}/segments")
     ).json()
-    # Two canned segments per chunk * 2 chunks = 4 rows.
+    # Wave 8.3 contract: one row per complete sentence (not per Whisper
+    # segment). Each canned chunk emits two sentences ("hello world." and
+    # "hi there!"); two chunks => 4 rows.
     assert len(seg_body["segments"]) == 4
     starts = [s["start_ms"] for s in seg_body["segments"]]
-    # Chunk 0 -> offset 0, chunk 1 -> offset 5000. Canned segments start at
-    # 0 and 2500 ms (within their own chunk). After offset:
-    assert starts == [0, 2500, 5000, 7500]
+    # Chunk 0 -> offset 0, chunk 1 -> offset 10000 (CHUNK_DURATION_MS).
+    # Canned segments start at 0 and 2500 ms within their own chunk.
+    assert starts == [0, 2500, 10000, 12500]
     assert all(s["source_type"] == "live_voice" for s in seg_body["segments"])
-    assert all(s["is_final"] is False for s in seg_body["segments"])
-    # Real text propagated, not a placeholder.
-    assert {s["text"] for s in seg_body["segments"]} == {"hello world", "hi there"}
+    # Wave 8.3: every sentence row is final on first appearance.
+    assert all(s["is_final"] is True for s in seg_body["segments"])
+    # Sentence-buffer output preserves the segment text (with terminator).
+    assert {s["text"] for s in seg_body["segments"]} == {"hello world.", "hi there!"}
 
 
 async def test_voice_ingest_failure_falls_back_to_placeholder(
@@ -202,7 +211,9 @@ async def test_segments_since_id_pagination(client, patched_transcribe) -> None:
             files={"audio": (f"c{i}.webm", io.BytesIO(b"x"), "audio/webm")},
         )
     full = (await client.get(f"/api/live-meetings/{meeting_id}/segments")).json()
-    # 2 segments per chunk * 2 chunks
+    # Wave 8.3: 2 sentences per chunk * 2 chunks = 4 rows (each canned
+    # segment ends with terminal punctuation, so one segment == one
+    # sentence in this fixture).
     assert len(full["segments"]) == 4
     cut_id = full["segments"][1]["segment_id"]
     after = (
@@ -236,3 +247,109 @@ async def test_create_404_unknown_meeting(client) -> None:
         files={"audio": ("c.webm", io.BytesIO(b"x"), "audio/webm")},
     )
     assert resp.status_code == 404
+
+
+def _fragment_transcript(text: str, start_ms: int, end_ms: int) -> NormalizedTranscript:
+    """Helper: a single-segment canned transcript with custom text. Used
+    to script multi-chunk fragment-then-completion sequences against the
+    sentence buffer."""
+    return NormalizedTranscript(
+        meeting_id="ignored",
+        segments=[
+            SpeakerSegment(
+                segment_id="s0",
+                speaker_id="speaker_1",
+                speaker_name=None,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                text=text,
+                confidence=0.9,
+                source_type=SourceType.voice_file,
+                is_final=True,
+            ),
+        ],
+    )
+
+
+async def test_sentence_buffer_holds_fragment_across_chunks(
+    client, monkeypatch
+) -> None:
+    """Wave 8.3 integration: a chunk with no terminator yields 0 rows; the
+    next chunk that completes the sentence yields exactly 1 row joining
+    both chunks' text."""
+    from storage_router.api import live_route
+
+    canned: list[NormalizedTranscript] = [
+        _fragment_transcript("the project status", 0, 1500),
+        _fragment_transcript("is on track.", 0, 1000),
+    ]
+    call_idx = {"i": 0}
+
+    def _stub(path: Path) -> NormalizedTranscript:
+        idx = call_idx["i"]
+        call_idx["i"] += 1
+        return canned[idx]
+
+    monkeypatch.setattr(
+        live_route.ingest_adapter_http, "transcribe_voice_file", _stub
+    )
+
+    meeting_id = await _create_meeting(client)
+    # Chunk 0: fragment, no terminator.
+    r0 = await client.post(
+        f"/api/live-meetings/{meeting_id}/audio-chunk",
+        files={"audio": ("c0.webm", io.BytesIO(b"x"), "audio/webm")},
+    )
+    assert r0.status_code == 202
+    assert r0.json()["segments_added"] == 0, "fragment must be held by buffer"
+
+    # Chunk 1: contains the period that completes the sentence.
+    r1 = await client.post(
+        f"/api/live-meetings/{meeting_id}/audio-chunk",
+        files={"audio": ("c1.webm", io.BytesIO(b"x"), "audio/webm")},
+    )
+    assert r1.status_code == 202
+    assert r1.json()["segments_added"] == 1
+
+    seg_body = (
+        await client.get(f"/api/live-meetings/{meeting_id}/segments")
+    ).json()
+    assert len(seg_body["segments"]) == 1
+    # Joined sentence; original anchor (chunk 0 start) preserved.
+    assert seg_body["segments"][0]["text"] == "the project status is on track."
+    assert seg_body["segments"][0]["start_ms"] == 0
+    assert seg_body["segments"][0]["is_final"] is True
+
+
+async def test_end_meeting_flushes_trailing_fragment(
+    client, monkeypatch
+) -> None:
+    """Wave 8.3: a trailing fragment held by the buffer when the meeting
+    ends must be force-emitted as a final sentence so the last partial
+    utterance is not lost."""
+    from storage_router.api import live_route
+
+    def _stub(path: Path) -> NormalizedTranscript:
+        return _fragment_transcript("dangling fragment", 0, 1200)
+
+    monkeypatch.setattr(
+        live_route.ingest_adapter_http, "transcribe_voice_file", _stub
+    )
+
+    meeting_id = await _create_meeting(client)
+    await client.post(
+        f"/api/live-meetings/{meeting_id}/audio-chunk",
+        files={"audio": ("c0.webm", io.BytesIO(b"x"), "audio/webm")},
+    )
+    # Before /end: nothing emitted (fragment held).
+    pre = (await client.get(f"/api/live-meetings/{meeting_id}/segments")).json()
+    assert pre["segments"] == []
+
+    end = await client.post(f"/api/live-meetings/{meeting_id}/end")
+    assert end.status_code == 200
+    assert end.json()["status"] == "ready"
+
+    post = (await client.get(f"/api/live-meetings/{meeting_id}/segments")).json()
+    assert len(post["segments"]) == 1
+    assert post["segments"][0]["text"] == "dangling fragment"
+    assert post["segments"][0]["is_final"] is True
