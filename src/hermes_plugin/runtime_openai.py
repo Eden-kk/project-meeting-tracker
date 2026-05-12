@@ -85,8 +85,19 @@ def _default_openai_client() -> "openai.OpenAI":
     import openai
 
     base_url = os.environ.get("OPENAI_BASE_URL") or None
-    kwargs = {"base_url": base_url} if base_url else {}
-    return openai.OpenAI(**kwargs)
+    # The openai SDK (≥ 2.x) also reads OPENAI_BASE_URL from the environment
+    # on its own. An empty-string value causes it to use "" as the base URL
+    # and fail with a connection error. Pass `base_url=` explicitly so we own
+    # the resolved value, and temporarily unset the env var so the SDK's own
+    # env-reading path cannot pick up the empty string.
+    _sentinel = object()
+    _old = os.environ.pop("OPENAI_BASE_URL", _sentinel)
+    try:
+        client = openai.OpenAI(base_url=base_url)
+    finally:
+        if _old is not _sentinel:
+            os.environ["OPENAI_BASE_URL"] = _old  # type: ignore[assignment]
+    return client
 
 
 def _attr(obj: Any, name: str, default: Any = None) -> Any:
@@ -261,4 +272,194 @@ def run_skill(
     }
 
 
-__all__ = ["run_skill"]
+def _build_chunk_tools_param() -> list[dict]:
+    """Per-chunk extraction only needs create_draft_memory_card."""
+    name = "create_draft_memory_card"
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": TOOL_DESCRIPTIONS[name],
+                "parameters": TOOL_JSON_SCHEMAS[name],
+            },
+        }
+    ]
+
+
+def _format_ms(ms: Optional[int]) -> str:
+    if ms is None:
+        return "??:??"
+    total_s = int(ms // 1000)
+    return f"{total_s // 60:02d}:{total_s % 60:02d}"
+
+
+def _render_chunk_text(chunk: Any) -> str:
+    lines: list[str] = []
+    for seg in chunk.segments:
+        seg_id = seg.get("segment_id", "?")
+        speaker = seg.get("speaker_name") or "unknown"
+        start = seg.get("start_ms")
+        end = seg.get("end_ms")
+        ts = f"{_format_ms(start)}-{_format_ms(end)}"
+        text = seg.get("text", "")
+        lines.append(f"[{seg_id}  {ts}  {speaker}] {text}")
+    return "\n".join(lines)
+
+
+def _run_openai_chunk_loop(
+    *,
+    meeting_id: str,
+    chunk: Any,
+    chunk_count: int,
+    system: str,
+    storage_client: StorageRouterClient,
+    llm: "openai.OpenAI",
+    model: str,
+    max_iterations: int,
+) -> tuple[int, str]:
+    """Drive the per-chunk OpenAI loop. Returns (cards_created, final_text)."""
+    chunk_text = _render_chunk_text(chunk)
+    bootstrap = (
+        f"meeting_id: {meeting_id}\n"
+        f"chunk_index: {chunk.index}\n"
+        f"chunk_count: {chunk_count}\n"
+        f"window_start: {_format_ms(chunk.start_ms)}\n"
+        f"window_end: {_format_ms(chunk.end_ms)}\n"
+        f"speakers: {', '.join(chunk.speakers) if chunk.speakers else '(unknown)'}\n"
+        f"\n--- transcript window ---\n{chunk_text}\n--- end window ---"
+    )
+
+    tools_param = _build_chunk_tools_param()
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": bootstrap},
+    ]
+    cards_created = 0
+    iterations = 0
+    last_message: Any = None
+
+    while iterations < max_iterations:
+        iterations += 1
+        response = llm.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools_param,
+            max_tokens=4096,
+        )
+
+        choices = _attr(response, "choices") or []
+        if not choices:
+            break
+        choice = choices[0]
+        last_message = _attr(choice, "message")
+        finish_reason = _attr(choice, "finish_reason")
+        tool_calls = _attr(last_message, "tool_calls") or []
+
+        assistant_entry: dict = {
+            "role": "assistant",
+            "content": _attr(last_message, "content"),
+        }
+        if tool_calls:
+            assistant_entry["tool_calls"] = _serialize_tool_calls_for_history(tool_calls)
+        messages.append(assistant_entry)
+
+        if finish_reason != "tool_calls" or not tool_calls:
+            break
+
+        for tc in tool_calls:
+            tool_call_id = _attr(tc, "id")
+            function = _attr(tc, "function")
+            name = _attr(function, "name")
+            tool_input = _parse_tool_arguments(_attr(function, "arguments"))
+
+            try:
+                if name != "create_draft_memory_card":
+                    raise ToolError(
+                        status_code=403,
+                        code="tool_not_allowed",
+                        message=(
+                            f"Chunked extraction only permits create_draft_memory_card; "
+                            f"got {name!r}"
+                        ),
+                    )
+                result = TOOL_REGISTRY[name](tool_input, storage_client)
+                cards_created += 1
+                content_payload: Any = result
+            except ToolError as exc:
+                result = exc.to_payload()
+                content_payload = result
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": _stringify_result(content_payload),
+                }
+            )
+
+    final_text = _final_text(last_message) if last_message is not None else ""
+    return cards_created, final_text
+
+
+# Threshold above which single-pass OpenAI extraction is replaced by
+# chunked extraction. 60 000 chars ≈ 15 000 tokens — safely under gpt-4o's
+# 128 K context, but the single-pass path needs the whole transcript as a
+# tool-call result plus 4 096 output tokens; chunking avoids that wall.
+_SINGLE_PASS_CHAR_LIMIT = 60_000
+
+
+def run_chunked_extraction_openai(
+    meeting_id: str,
+    *,
+    chunk_minutes: int = 5,
+    segments: list[dict],
+    client: Optional[StorageRouterClient] = None,
+    openai_client: Optional["openai.OpenAI"] = None,
+    model: str = "gpt-4o-2024-11-20",
+    max_iterations: int = 8,
+) -> dict:
+    """Chunked extraction for OpenAI: split segments into time windows and
+    run ``meeting-memory-extraction-chunk`` once per window.
+
+    Returns ``{"cards_created": int, "chunks_processed": int, "summary": str}``.
+    """
+    from .chunker import chunk_segments as _chunk_segments
+
+    storage_client = client if client is not None else StorageRouterClient()
+    llm = openai_client if openai_client is not None else _default_openai_client()
+    system = _load_skill("meeting-memory-extraction-chunk")
+
+    chunks = _chunk_segments(segments, chunk_minutes=chunk_minutes)
+    if not chunks:
+        return {"cards_created": 0, "chunks_processed": 0, "summary": ""}
+
+    total_cards = 0
+    chunks_processed = 0
+    topic_sentences: list[str] = []
+
+    for chunk in chunks:
+        cards_in_chunk, final_text = _run_openai_chunk_loop(
+            meeting_id=meeting_id,
+            chunk=chunk,
+            chunk_count=len(chunks),
+            system=system,
+            storage_client=storage_client,
+            llm=llm,
+            model=model,
+            max_iterations=max_iterations,
+        )
+        total_cards += cards_in_chunk
+        chunks_processed += 1
+        if final_text:
+            topic_sentences.append(final_text.strip())
+
+    summary = "\n".join(topic_sentences)
+    return {
+        "cards_created": total_cards,
+        "chunks_processed": chunks_processed,
+        "summary": summary,
+    }
+
+
+__all__ = ["run_skill", "run_chunked_extraction_openai", "_SINGLE_PASS_CHAR_LIMIT"]
