@@ -27,7 +27,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,21 @@ from storage_router.models.db import (
     MeetingSourceRow,
     SpeakerSegmentRow,
 )
+from storage_router.sentence_buffer import (
+    CompleteSentence,
+    SentenceBuffer,
+    WhisperSeg,
+)
+
+try:
+    # Wave 8.3 default for the force-flush window. Falls back to the
+    # SentenceBuffer module default if voice_ingest is not installed in
+    # the same env (e.g. unit-test sandbox).
+    from voice_ingest.config import PUNCT_MAX_WAIT_MS as _PUNCT_MAX_WAIT_MS
+except Exception:  # pragma: no cover — only the import path matters
+    from storage_router.sentence_buffer import (
+        DEFAULT_PUNCT_MAX_WAIT_MS as _PUNCT_MAX_WAIT_MS,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -114,15 +129,64 @@ async def create_live_meeting(
     }
 
 
+def _get_buffer(request: Request, meeting_id: str) -> SentenceBuffer:
+    """Return (or lazily create) the per-meeting sentence buffer.
+
+    Created on first chunk; popped on `end_live_meeting`. Storage is on
+    `app.state.sentence_buffers`, initialised by the app factory.
+    """
+    buffers: dict[str, SentenceBuffer] = request.app.state.sentence_buffers
+    buf = buffers.get(meeting_id)
+    if buf is None:
+        buf = SentenceBuffer(punct_max_wait_ms=_PUNCT_MAX_WAIT_MS)
+        buffers[meeting_id] = buf
+    return buf
+
+
+def _persist_sentence(
+    session: Session,
+    meeting_id: str,
+    sentence: CompleteSentence,
+) -> SpeakerSegmentRow:
+    """Insert one sentence as a `speaker_segments` row.
+
+    Wave 8.3 still writes `speaker_id="speaker_1"` — diarization arrives in
+    8.4 and the gate (8.5) will block this insert until the label is
+    settled. `is_final=True` because, by definition for this layer, a
+    sentence is a final unit (terminal punctuation seen or force-flushed).
+    """
+    row = SpeakerSegmentRow(
+        id=new_id("seg"),
+        meeting_id=meeting_id,
+        speaker_id="speaker_1",
+        speaker_name=None,
+        start_ms=sentence.start_ms,
+        end_ms=sentence.end_ms,
+        text=sentence.text,
+        confidence=None,
+        source_type="live_voice",
+        is_final=True,
+    )
+    session.add(row)
+    return row
+
+
 @router.post("/api/live-meetings/{meeting_id}/audio-chunk", status_code=202)
 async def receive_chunk(
     meeting_id: str,
+    request: Request,
     audio: UploadFile = File(...),
     session: Session = Depends(get_session),
 ):
     """Persist a chunk, transcribe it via voice-ingest, and append segments.
 
     Returns ``{seq, segments_added, bytes}`` so the client can correlate.
+
+    Wave 8.3: raw Whisper segments are no longer persisted directly. They
+    feed a per-meeting `SentenceBuffer`; only complete sentences become
+    rows in `speaker_segments`. A chunk that contains zero sentence
+    terminators yields `segments_added=0` (the fragment is held until the
+    next chunk completes the sentence).
     """
     meeting = session.get(MeetingRow, meeting_id)
     if meeting is None:
@@ -176,24 +240,25 @@ async def receive_chunk(
             "transcribed": False,
         }
 
+    # Wave 8.3 — convert voice-ingest segments to the buffer's input shape,
+    # offset-shifted onto the meeting's running timeline, then feed the
+    # per-meeting `SentenceBuffer`. Only complete sentences leave the
+    # buffer and become rows.
+    buffer = _get_buffer(request, meeting_id)
+    feed_segments: list[WhisperSeg] = []
     for seg in transcript.segments:
-        row = SpeakerSegmentRow(
-            id=new_id("seg"),
-            meeting_id=meeting_id,
-            speaker_id=seg.speaker_id,
-            speaker_name=seg.speaker_name,
-            start_ms=(seg.start_ms or 0) + offset_ms,
-            end_ms=(seg.end_ms or 0) + offset_ms if seg.end_ms is not None else None,
-            text=seg.text,
-            confidence=seg.confidence,
-            # Live capture always records itself as live_voice regardless of
-            # what voice-ingest tagged the source as; the file path through
-            # this route IS live capture.
-            source_type="live_voice",
-            is_final=False,
+        if not seg.text or not seg.text.strip():
+            continue
+        feed_segments.append(
+            WhisperSeg(
+                text=seg.text,
+                start_ms=(seg.start_ms or 0) + offset_ms,
+                end_ms=(seg.end_ms or 0) + offset_ms if seg.end_ms is not None else offset_ms,
+            )
         )
-        session.add(row)
-        inserted.append(row)
+    sentences = buffer.feed(feed_segments)
+    for sentence in sentences:
+        inserted.append(_persist_sentence(session, meeting_id, sentence))
     session.commit()
 
     return {
@@ -210,6 +275,10 @@ async def end_live_meeting(meeting_id: str, session: Session = Depends(get_sessi
 
     The downstream finalize/extract pipeline runs on its own cadence; this
     endpoint only signals that no further chunks will arrive.
+
+    Wave 8.3: also pops the per-meeting sentence buffer and persists any
+    trailing fragment as a final sentence so the last partial utterance is
+    not lost.
     """
     meeting = session.get(MeetingRow, meeting_id)
     if meeting is None:
@@ -221,6 +290,13 @@ async def end_live_meeting(meeting_id: str, session: Session = Depends(get_sessi
                 "error": {"code": "not_live", "current_status": meeting.status}
             },
         )
+    # Flush + drop the buffer regardless of starting status, so a re-`/end`
+    # call on a meeting that is already `ready` is still idempotent.
+    buffers: dict[str, SentenceBuffer] = request.app.state.sentence_buffers
+    buf = buffers.pop(meeting_id, None)
+    if buf is not None:
+        for sentence in buf.flush():
+            _persist_sentence(session, meeting_id, sentence)
     if meeting.status == "live":
         meeting.status = "ready"
         session.commit()

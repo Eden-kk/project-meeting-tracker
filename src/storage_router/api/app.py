@@ -60,6 +60,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.state.blob_store = LocalFsBlobStore(settings.blob_store_dir)
+    # Wave 8.3 — per-meeting sentence buffers, keyed by meeting_id. The
+    # `live_route` handlers create entries on first chunk and pop them on
+    # `end_live_meeting`. Wave 8.5/8.6 will add similar registries for
+    # asyncio tasks (gate consumer, topic-tracker tick) following the same
+    # "Per-meeting task lifecycle" pattern documented in the plan.
+    from storage_router.sentence_buffer import SentenceBuffer  # noqa: E402
+
+    app.state.sentence_buffers: dict[str, SentenceBuffer] = {}
 
     @app.on_event("startup")
     def _startup() -> None:
