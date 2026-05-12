@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { askWorkspace, type WorkspaceQACitation } from '../api/client';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { AnswerBody } from '../components/AnswerBody';
 
 function citationLink(workspaceId: string, c: WorkspaceQACitation): string {
   const base = `/ws/${workspaceId}/meetings/${c.meeting_id}`;
@@ -86,9 +87,9 @@ export default function AskPage() {
                 </span>
               )}
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-900">
-              {ask.data.answer}
-            </p>
+            <div className="mt-2 text-gray-900">
+              <AnswerBody text={ask.data.answer} />
+            </div>
           </div>
 
           {ask.data.citations.length > 0 && (

@@ -321,11 +321,25 @@ export type AskWorkspaceInput = {
 export async function askWorkspace(
   input: AskWorkspaceInput,
 ): Promise<WorkspaceQAResponse> {
-  const res = await api.post<WorkspaceQAResponse>('/api/qa/workspace', {
+  // The backend may return either the normalised WorkspaceQAResponse shape
+  // {answer, confidence, citations, weak_evidence} or the raw run_skill
+  // shape {final_text, tool_calls, iterations} if the workspace-qa skill
+  // path bypasses the response wrapper. Normalise here so AskPage can
+  // always read `.answer`.
+  const res = await api.post<WorkspaceQAResponse & { final_text?: string }>('/api/qa/workspace', {
     workspace_id: input.workspace_id,
     question: input.question,
   });
-  return res.data;
+  const data = res.data;
+  if (!data.answer && data.final_text) {
+    return {
+      answer: data.final_text,
+      confidence: (data as unknown as { confidence?: number }).confidence ?? 0.6,
+      citations: (data as unknown as { citations?: WorkspaceQACitation[] }).citations ?? [],
+      weak_evidence: (data as unknown as { weak_evidence?: boolean }).weak_evidence ?? false,
+    };
+  }
+  return data;
 }
 
 export async function searchCards(
