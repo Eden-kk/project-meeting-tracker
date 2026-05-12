@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from storage_router import ingest_adapter_http, storage
+from storage_router import ingest_adapter_http, live_extraction, storage
 from storage_router.db import get_session
 from storage_router.ids import new_id
 from storage_router.models.db import (
@@ -88,7 +88,7 @@ def _next_chunk_seq(meeting_id: str) -> int:
 
 
 @router.post("/api/live-meetings", status_code=201)
-def create_live_meeting(
+async def create_live_meeting(
     workspace_id: str = Form(...),
     title: str = Form("Live meeting"),
     session: Session = Depends(get_session),
@@ -113,6 +113,15 @@ def create_live_meeting(
         )
     )
     session.commit()
+    # Wave 6.3: spin up the periodic agent loop that refreshes the
+    # rolling summary every ~120s. ``start_for`` is a no-op if there is
+    # no running event loop (e.g., a sync test client) so we don't have
+    # to special-case test wiring here.
+    live_extraction.start_for(meeting.id)
+    # Wave 6.4: same cadence, separate tick — drives the
+    # ``live-meeting-extraction`` skill over the SINCE-marked window
+    # and creates draft cards.
+    live_extraction.start_extraction_for(meeting.id)
     return {
         "artifact_id": artifact.id,
         "meeting_id": meeting.id,
@@ -261,11 +270,7 @@ async def receive_chunk(
 
 
 @router.post("/api/live-meetings/{meeting_id}/end")
-def end_live_meeting(
-    meeting_id: str,
-    request: Request,
-    session: Session = Depends(get_session),
-):
+async def end_live_meeting(meeting_id: str, session: Session = Depends(get_session)):
     """Flip the meeting from ``live`` -> ``ready``.
 
     The downstream finalize/extract pipeline runs on its own cadence; this
@@ -294,7 +299,13 @@ def end_live_meeting(
             _persist_sentence(session, meeting_id, sentence)
     if meeting.status == "live":
         meeting.status = "ready"
-    session.commit()
+        session.commit()
+    # Wave 6.3 + 6.4: tear down both agent loops. Safe to call even if
+    # no task was ever started (idle no-op). The standard finalize
+    # chain at /end runs the consolidation pass which dedupes any
+    # cards that the live-extraction overlap window emitted twice.
+    live_extraction.stop_for(meeting_id)
+    live_extraction.stop_extraction_for(meeting_id)
     return {"meeting_id": meeting_id, "status": meeting.status}
 
 
@@ -332,6 +343,10 @@ def list_segments(
     return {
         "meeting_id": meeting_id,
         "status": meeting.status,
+        # Wave 6.3: bundle the rolling summary into the segments response
+        # so the frontend can pick it up on the same 2s poll without a
+        # second round-trip. NULL until the first agent tick succeeds.
+        "live_summary": meeting.live_summary,
         "segments": [
             {
                 "segment_id": r.id,
@@ -346,4 +361,80 @@ def list_segments(
             }
             for r in rows
         ],
+    }
+
+
+@router.get("/api/live-meetings/{meeting_id}/draft-cards")
+def list_live_draft_cards(
+    meeting_id: str,
+    since_iso: str | None = None,
+    session: Session = Depends(get_session),
+):
+    """Wave 6.4: poll for cards created by the live extraction tick.
+
+    Returns visible (non-hidden) memory cards for the meeting in
+    creation order. The ``since_iso`` query param (UTC ISO 8601) lets
+    a polling caller skip cards it already has — server-side filter is
+    on ``created_at > since``.
+
+    The response shape mirrors the existing
+    ``/api/meetings/{id}/memory-cards`` list endpoint so the frontend
+    can reuse the same MemoryCard rendering.
+    """
+    from datetime import datetime
+
+    from storage_router.models.db import MemoryCardRow
+    from storage_router.api.memory_cards_route import _row_to_card
+
+    meeting = session.get(MeetingRow, meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="meeting not found")
+
+    q = (
+        select(MemoryCardRow)
+        .where(MemoryCardRow.meeting_id == meeting_id)
+        .where(MemoryCardRow.hidden_at.is_(None))
+        .order_by(MemoryCardRow.created_at, MemoryCardRow.id)
+    )
+    if since_iso is not None:
+        try:
+            since_dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": {
+                        "code": "bad_since",
+                        "message": (
+                            "since_iso must be ISO 8601 (e.g., "
+                            "2026-05-11T12:34:56Z)"
+                        ),
+                    }
+                },
+            ) from None
+        q = q.where(MemoryCardRow.created_at > since_dt)
+    rows = list(session.execute(q).scalars().all())
+    return {
+        "meeting_id": meeting_id,
+        "status": meeting.status,
+        "items": [_row_to_card(r).model_dump(mode="json") for r in rows],
+    }
+
+
+@router.get("/api/live-meetings/{meeting_id}/summary")
+def get_live_summary(meeting_id: str, session: Session = Depends(get_session)):
+    """Return the most recent rolling summary for a live meeting.
+
+    Wave 6.3: a thin read endpoint that returns whatever the periodic
+    agent loop last wrote to ``meetings.live_summary``. The frontend
+    can either poll this on its own cadence or read the summary that
+    is now bundled into ``GET /segments`` — both surface the same value.
+    """
+    meeting = session.get(MeetingRow, meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="meeting not found")
+    return {
+        "meeting_id": meeting_id,
+        "status": meeting.status,
+        "summary": meeting.live_summary,
     }

@@ -91,6 +91,15 @@ class MeetingRow(Base):
     # Phase-3 auto-finalize: populated when a background finalize task
     # fails so the UI can show the cause without spelunking the logs.
     last_finalize_error: Mapped[str | None] = mapped_column(Text)
+    # Wave 6.3 — rolling summary refreshed by the live extraction loop
+    # while the meeting is still ``status='live'``. Updated in place every
+    # ~120s; NULL until the first tick succeeds.
+    live_summary: Mapped[str | None] = mapped_column(Text)
+    # Wave 6.4 — high-water mark in transcript time (ms) for the periodic
+    # draft-card extraction tick. Each tick processes the window
+    # ``[max(0, last_live_extraction_end_ms - overlap_ms), now]`` and then
+    # writes ``end_ms`` of the latest segment back here.
+    last_live_extraction_end_ms: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class MeetingSourceRow(Base):
