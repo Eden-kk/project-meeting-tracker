@@ -289,6 +289,21 @@ async def receive_chunk(
             "transcribed": False,
         }
 
+    # Wave 8.6 — feed decoded PCM to the per-meeting diarizer so assign()
+    # can resolve speakers. Best-effort: never break the transcript path.
+    try:
+        import librosa
+        import numpy as np
+
+        pcm, _sr = librosa.load(str(target), sr=16000, mono=True)
+        _get_diarizer(request, meeting_id).append_audio(
+            offset_ms, offset_ms + CHUNK_DURATION_MS, pcm
+        )
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning(
+            "append_audio failed for meeting=%s seq=%s: %s", meeting_id, seq, _exc
+        )
+
     # Wave 8.3 — convert voice-ingest segments to the buffer's input shape,
     # offset-shifted onto the meeting's running timeline, then feed the
     # per-meeting `SentenceBuffer`. Only complete sentences leave the
@@ -442,6 +457,9 @@ def list_segments(
         # so the frontend can pick it up on the same 2s poll without a
         # second round-trip. NULL until the first agent tick succeeds.
         "live_summary": meeting.live_summary,
+        # Wave 8.6: bundle the current topic so the UI can display it
+        # on the same 2s poll cadence without a separate round-trip.
+        "current_topic": meeting.current_topic,
         "segments": [
             {
                 "segment_id": r.id,

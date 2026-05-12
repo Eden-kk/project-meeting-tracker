@@ -141,6 +141,8 @@ export type LiveSegmentsResponse = {
   status: string;
   /** Wave 6.3: rolling agent summary (NULL until the first ~120s tick fires). */
   live_summary: string | null;
+  /** Wave 8.6: current discussion topic, updated every ~30s. */
+  current_topic: string | null;
   segments: LiveSegment[];
 };
 
@@ -194,6 +196,15 @@ export async function endLiveMeeting(meetingId: string): Promise<{ status: strin
     `/api/live-meetings/${meetingId}/end`,
   );
   return res.data;
+}
+
+/** Wave 8.6: rename a speaker label via PATCH /api/meetings/{id}/speakers. */
+export async function renameLiveSpeaker(
+  meetingId: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await api.patch(`/api/meetings/${meetingId}/speakers`, { from, to });
 }
 
 export async function listLiveSegments(
