@@ -35,8 +35,6 @@ export default function LivePage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [title, setTitle] = useState('Live meeting');
-  const [intervieweeName, setIntervieweeName] = useState('');
-  const [intervieweeRole, setIntervieweeRole] = useState('');
   const [segments, setSegments] = useState<LiveSegment[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Wave 6.3: rolling summary refreshed by the backend every ~120s.
@@ -127,11 +125,7 @@ export default function LivePage() {
       return;
     }
     try {
-      const created = await createLiveMeeting(
-        title.trim() || 'Live meeting',
-        intervieweeName.trim() || undefined,
-        intervieweeRole.trim() || undefined,
-      );
+      const created = await createLiveMeeting(title.trim() || 'Live meeting');
       meetingRef.current = created.meeting_id;
       setMeetingId(created.meeting_id);
       seqRef.current = 0;
@@ -187,7 +181,7 @@ export default function LivePage() {
       phaseRef.current = 'error';
       setPhase('error');
     }
-  }, [intervieweeName, intervieweeRole, startPolling, title]);
+  }, [startPolling, title]);
 
   const handleStop = useCallback(async () => {
     phaseRef.current = 'ending';
@@ -231,32 +225,6 @@ export default function LivePage() {
       </header>
 
       <section className="space-y-3 rounded border border-gray-200 bg-white p-4">
-        <label className="block text-sm font-medium" htmlFor="live-interviewee-name">
-          Interviewee name
-        </label>
-        <input
-          id="live-interviewee-name"
-          type="text"
-          value={intervieweeName}
-          onChange={(e) => setIntervieweeName(e.target.value)}
-          disabled={phase === 'recording' || phase === 'ending'}
-          placeholder="e.g. Alice Smith (optional)"
-          className="w-full rounded border border-gray-300 p-2 disabled:bg-gray-100"
-        />
-
-        <label className="block text-sm font-medium" htmlFor="live-interviewee-role">
-          Role/topic
-        </label>
-        <input
-          id="live-interviewee-role"
-          type="text"
-          value={intervieweeRole}
-          onChange={(e) => setIntervieweeRole(e.target.value)}
-          disabled={phase === 'recording' || phase === 'ending'}
-          placeholder="e.g. staff engineer (optional)"
-          className="w-full rounded border border-gray-300 p-2 disabled:bg-gray-100"
-        />
-
         <label className="block text-sm font-medium" htmlFor="live-title">
           Title
         </label>
@@ -345,14 +313,12 @@ export default function LivePage() {
         active={phase === 'recording'}
       />
 
-      {/* Q1: suggested interview questions panel; only meaningful when
-          intervieweeName was set on the start form. */}
-      {intervieweeName.trim() && (
-        <SuggestedQuestionsPanel
-          questions={suggestedQuestions}
-          active={phase === 'recording'}
-        />
-      )}
+      {/* Q1: suggested questions panel; populated by the per-meeting
+          questioner loop ~60s after the meeting starts. */}
+      <SuggestedQuestionsPanel
+        questions={suggestedQuestions}
+        active={phase === 'recording'}
+      />
 
       <section className="rounded border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-lg font-medium">Live transcript</h2>

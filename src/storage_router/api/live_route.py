@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -88,16 +87,11 @@ def _next_chunk_seq(meeting_id: str) -> int:
     return (max(existing) + 1) if existing else 0
 
 
-_INTERVIEWEE_NAME_RE = re.compile(r"^[A-Za-z0-9 \-']{1,100}$")
-
-
 @router.post("/api/live-meetings", status_code=201)
 async def create_live_meeting(
     request: Request,
     workspace_id: str = Form(...),
     title: str = Form("Live meeting"),
-    interviewee_name: str | None = Form(None),
-    interviewee_role: str | None = Form(None),
     session: Session = Depends(get_session),
 ):
     """Create an artifact + meeting in ``status='live'``.
@@ -108,25 +102,9 @@ async def create_live_meeting(
     asyncio scheduler is unavailable (synchronous test client without
     a running loop) we swallow and log rather than fail the route.
 
-    Q1: accepts optional `interviewee_name` and `interviewee_role`; when
-    `interviewee_name` is present it is validated (≤100 chars, charset
-    A-Za-z0-9 space hyphen apostrophe) and the questioner loop is spawned.
+    Q1: also spawns the `live-interview-questioner` tick loop for every
+    live meeting; suggested questions land on `meetings.suggested_questions`.
     """
-    if interviewee_name is not None:
-        interviewee_name = interviewee_name.strip() or None
-    if interviewee_name is not None and not _INTERVIEWEE_NAME_RE.match(interviewee_name):
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": {
-                    "code": "invalid_interviewee_name",
-                    "message": (
-                        "interviewee_name must be 1-100 chars: letters, digits, "
-                        "spaces, hyphens, apostrophes only"
-                    ),
-                }
-            },
-        )
     artifact = storage.create_artifact(
         session,
         workspace_id=workspace_id,
@@ -138,8 +116,6 @@ async def create_live_meeting(
     meeting = storage.create_meeting(
         session, artifact_id=artifact.id, title=title, status="live"
     )
-    meeting.interviewee_name = interviewee_name
-    meeting.interviewee_role = interviewee_role
     session.add(
         MeetingSourceRow(
             id=new_id("ms"),
@@ -158,18 +134,17 @@ async def create_live_meeting(
             meeting.id,
             exc,
         )
-    # Q1: start the interview-questioner loop only when interviewee_name is set.
-    if interviewee_name is not None:
-        try:
-            from storage_router.live_interview_questioner import start_questioner_loop
+    # Q1: start the interview-questioner loop for every live meeting.
+    try:
+        from storage_router.live_interview_questioner import start_questioner_loop
 
-            start_questioner_loop(request.app, meeting.id)
-        except RuntimeError as exc:  # no running event loop (sync test client)
-            logger.info(
-                "live-interview-questioner not started for %s (no event loop): %s",
-                meeting.id,
-                exc,
-            )
+        start_questioner_loop(request.app, meeting.id)
+    except RuntimeError as exc:  # no running event loop (sync test client)
+        logger.info(
+            "live-interview-questioner not started for %s (no event loop): %s",
+            meeting.id,
+            exc,
+        )
     # Wave 6.3: spin up the periodic agent loop that refreshes the
     # rolling summary every ~120s. ``start_for`` is a no-op if there is
     # no running event loop (e.g., a sync test client) so we don't have

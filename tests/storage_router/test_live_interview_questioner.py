@@ -124,8 +124,8 @@ async def test_questioner_loop_skips_when_no_snippet():
 
 
 @pytest.mark.asyncio
-async def test_questioner_loop_skips_when_no_interviewee_name():
-    """No skill call when interviewee_name is None (gate inside the loop)."""
+async def test_questioner_loop_runs_without_interviewee_name():
+    """Skill is still called when interviewee_name is None — grounds on transcript only."""
     sleeps: list[int] = []
 
     async def _fake_sleep(seconds: int) -> None:
@@ -134,49 +134,26 @@ async def test_questioner_loop_skips_when_no_interviewee_name():
 
     with patch.object(
         liq, "_build_snippet", return_value=("word " * 60, None, None)
-    ), patch("hermes_plugin.live_interview_questions") as call_mock, \
+    ), patch("hermes_plugin.live_interview_questions", return_value={"questions": ["q1"]}) as call_mock, \
        patch.object(liq, "_persist_questions") as persist_mock:
         with pytest.raises(asyncio.CancelledError):
             await liq.questioner_loop("m_noint", tick_seconds=60, sleep=_fake_sleep)
 
-    call_mock.assert_not_called()
-    persist_mock.assert_not_called()
+    call_mock.assert_called_once()
+    persist_mock.assert_called_once_with("m_noint", ["q1"])
 
 
 # ---------------------------------------------------------------------------
-# start_questioner_loop gate test (interviewee_name IS NULL → no-op)
+# start_questioner_loop spawn test (always spawns for live meetings)
 # ---------------------------------------------------------------------------
 
-def test_start_questioner_loop_noop_when_interviewee_name_null():
-    """When the meeting row has interviewee_name=None, no task is spawned."""
+def test_start_questioner_loop_spawns_task():
+    """A task is spawned for every live meeting (no gate)."""
     fake_app = SimpleNamespace(state=SimpleNamespace(live_tasks={}))
-
-    fake_session_cm = MagicMock()
-    fake_session = MagicMock()
-    fake_session.get.return_value = _fake_row(interviewee_name=None)
-    fake_session_cm.__enter__ = MagicMock(return_value=fake_session)
-    fake_session_cm.__exit__ = MagicMock(return_value=False)
-
-    with patch("storage_router.live_interview_questioner.SessionLocal", return_value=fake_session_cm):
-        liq.start_questioner_loop(fake_app, "m_noint")
-
-    assert "m_noint" not in fake_app.state.live_tasks
-
-
-def test_start_questioner_loop_spawns_task_when_interviewee_set():
-    """When the meeting has an interviewee_name, a task is spawned."""
-    fake_app = SimpleNamespace(state=SimpleNamespace(live_tasks={}))
-
-    fake_session_cm = MagicMock()
-    fake_session = MagicMock()
-    fake_session.get.return_value = _fake_row(interviewee_name="Alice")
-    fake_session_cm.__enter__ = MagicMock(return_value=fake_session)
-    fake_session_cm.__exit__ = MagicMock(return_value=False)
 
     async def _runner():
-        with patch("storage_router.live_interview_questioner.SessionLocal", return_value=fake_session_cm):
-            liq.start_questioner_loop(fake_app, "m_alice")
-        task = fake_app.state.live_tasks["m_alice"]["questioner"]
+        liq.start_questioner_loop(fake_app, "m_any")
+        task = fake_app.state.live_tasks["m_any"]["questioner"]
         assert not task.done()
         task.cancel()
         try:

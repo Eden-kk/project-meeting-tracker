@@ -1,13 +1,11 @@
 """Live interview questioner — per-meeting tick loop (Q1 slice).
 
-Started by `live_route.create_live_meeting` (only when `interviewee_name IS
-NOT NULL`) and cancelled by `live_route.end_live_meeting`. Every
-`QUESTIONER_TICK_SECONDS` (default 60 s) the loop reads the last
-`QUESTIONER_WINDOW_SECONDS` of finalized sentence text, passes it together
-with the interviewee name and role to the `live-interview-questioner` skill,
-and overwrites `meetings.suggested_questions` with the returned list (capped
-at 5). When `interviewee_name` is NULL the loop is never started, so regular
-meetings incur zero LLM cost.
+Started by `live_route.create_live_meeting` for every live meeting and
+cancelled by `live_route.end_live_meeting`. Every `QUESTIONER_TICK_SECONDS`
+(default 60 s) the loop reads the last `QUESTIONER_WINDOW_SECONDS` of
+finalized sentence text, passes it (together with `interviewee_name`/`role`
+when set) to the `live-interview-questioner` skill, and overwrites
+`meetings.suggested_questions` with the returned list (capped at 5).
 
 Pattern: mirrors `storage_router/live_topic_tracker.py` line-for-line.
 Tasks live in `app.state.live_tasks[meeting_id]["questioner"]`.
@@ -81,7 +79,7 @@ async def questioner_loop(
             try:
                 with SessionLocal() as session:
                     snippet, name, role = _build_snippet(session, meeting_id)
-                if snippet and name:
+                if snippet:
                     import hermes_plugin
                     output = await asyncio.to_thread(
                         hermes_plugin.live_interview_questions,
@@ -104,15 +102,8 @@ def start_questioner_loop(app, meeting_id: str) -> None:
     """Spawn the per-meeting questioner loop and register it on app.state.
 
     Idempotent: if a task is already registered for this meeting, do
-    nothing. Gate: reads `interviewee_name` from the DB; skips the loop
-    when NULL (regular meetings must not pay LLM cost).
-    Stored under `app.state.live_tasks[meeting_id]["questioner"]`.
+    nothing. Stored under `app.state.live_tasks[meeting_id]["questioner"]`.
     """
-    with SessionLocal() as session:
-        row = session.get(MeetingRow, meeting_id)
-        if row is None or row.interviewee_name is None:
-            return
-
     tasks: dict = app.state.live_tasks
     bucket = tasks.setdefault(meeting_id, {})
     if "questioner" in bucket and not bucket["questioner"].done():
