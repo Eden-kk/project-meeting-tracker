@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useMeetings } from '../hooks/useMeetings';
 import { useTotalCardCount } from '../hooks/useDraftCardCount';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { MeetingCard } from '../components/MeetingCard';
 import { StatChip } from '../components/StatChip';
 import { EmptyState } from '../components/EmptyState';
@@ -40,8 +41,10 @@ function topSource(meetings: StoredMeetingSummary[]): string {
 }
 
 export default function HomePage() {
+  const { workspaceId } = useWorkspace();
   const { meetings } = useMeetings();
   const totalCards = useTotalCardCount();
+  const wsBase = `/ws/${workspaceId}`;
   // Server already returns newest-first; preserve that order. For
   // registry-only entries appended on the end, secondary sort by
   // imported_at keeps recently-imported drafts near the top.
@@ -51,7 +54,7 @@ export default function HomePage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Home</h1>
-        <Link to="/import" className="rounded bg-gray-900 px-4 py-2 text-sm text-white">
+        <Link to={`${wsBase}/import`} className="rounded bg-gray-900 px-4 py-2 text-sm text-white">
           New import
         </Link>
       </header>
@@ -60,7 +63,7 @@ export default function HomePage() {
         <EmptyState
           title="No meetings yet"
           body="Import a transcript or audio file to get started."
-          cta={{ to: '/import', label: 'Import' }}
+          cta={{ to: `${wsBase}/import`, label: 'Import' }}
         />
       ) : (
         <>
@@ -81,7 +84,7 @@ export default function HomePage() {
             <HomeMemoryItemsCard
               type="action_item"
               title="Action items"
-              dashboardHref="/action-items"
+              dashboardHref={`${wsBase}/action-items`}
               emptyTitle="No action items yet"
               emptyBody="Action items extracted from your meetings will show up here."
               queryFn={listActionItems}
@@ -90,7 +93,7 @@ export default function HomePage() {
             <HomeMemoryItemsCard
               type="open_question"
               title="Open questions"
-              dashboardHref="/open-questions"
+              dashboardHref={`${wsBase}/open-questions`}
               emptyTitle="No open questions yet"
               emptyBody="Open questions surfaced from your meetings will show up here."
               queryFn={listOpenQuestions}

@@ -272,6 +272,24 @@ class MemoryCard(BaseModel):
     updated_at: datetime | None = None
 
 
+class Workspace(BaseModel):
+    """Wire shape for `GET /api/workspaces`.
+
+    Mirrors the `workspaces` ORM row after migration 0021 added
+    `description` and `last_meeting_at`. Both are nullable.
+    """
+
+    id: str
+    name: str
+    description: str | None = None
+    last_meeting_at: datetime | None = None
+
+
+class WorkspaceListResponse(BaseModel):
+    items: list[Workspace]
+    total: int
+
+
 __all__ = [
     "CaptureMode",
     "ConversationArtifact",
@@ -286,4 +304,6 @@ __all__ = [
     "SourceType",
     "SpeakerSegment",
     "Visibility",
+    "Workspace",
+    "WorkspaceListResponse",
 ]

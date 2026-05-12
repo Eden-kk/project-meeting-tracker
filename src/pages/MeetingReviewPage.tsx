@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getMeeting, getMeetingTranscript } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
 import { MemoryCardsTab } from '../components/MemoryCardsTab';
@@ -19,6 +20,7 @@ const TABS: TabDef[] = [
 ];
 
 export default function MeetingReviewPage() {
+  const { workspaceId } = useWorkspace();
   const { id = '' } = useParams<{ id: string }>();
   const [tab, setTab] = useState('transcript');
   const scrollTarget = useScrollTarget();
@@ -57,7 +59,7 @@ export default function MeetingReviewPage() {
     return (
       <div className="mx-auto max-w-3xl">
         <p>Meeting not found.</p>
-        <Link to="/" className="text-sm text-blue-600 underline">
+        <Link to={`/ws/${workspaceId}/`} className="text-sm text-blue-600 underline">
           Back to home
         </Link>
       </div>

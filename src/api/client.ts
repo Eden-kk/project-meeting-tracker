@@ -1,6 +1,5 @@
 import axios from 'axios';
 import type { components } from './types';
-import { DEV_WORKSPACE_ID } from '../lib/constants';
 import type {
   ActionItemListResponse,
   AskHermesInput,
@@ -34,6 +33,7 @@ export type ListMeetingsParams = { workspace_id: string; limit?: number; offset?
 export type Visibility = 'private' | 'workspace' | 'shared';
 
 export type ImportInput = {
+  workspace_id: string;
   title: string;
   visibility: Visibility;
   labels: string[];
@@ -48,7 +48,7 @@ export const api = axios.create({
 
 export async function importConversation(input: ImportInput): Promise<ImportAccepted> {
   const fd = new FormData();
-  fd.append('workspace_id', DEV_WORKSPACE_ID);
+  fd.append('workspace_id', input.workspace_id);
   fd.append('title', input.title);
   fd.append('visibility', input.visibility);
   for (const label of input.labels) fd.append('labels', label);
@@ -172,12 +172,13 @@ export type LiveChunkAccepted = {
 };
 
 export async function createLiveMeeting(
+  workspaceId: string,
   title: string,
   interviewee_name?: string,
   interviewee_role?: string,
 ): Promise<LiveMeetingCreated> {
   const fd = new FormData();
-  fd.append('workspace_id', DEV_WORKSPACE_ID);
+  fd.append('workspace_id', workspaceId);
   fd.append('title', title);
   if (interviewee_name) fd.append('interviewee_name', interviewee_name);
   if (interviewee_role) fd.append('interviewee_role', interviewee_role);
@@ -291,7 +292,7 @@ export type CardSearchResponse = {
 
 export type SearchCardsParams = {
   q: string;
-  workspace_id?: string;
+  workspace_id: string;
   type?: MemoryCardType;
   limit?: number;
   offset?: number;
@@ -313,18 +314,32 @@ export type WorkspaceQAResponse = {
 };
 
 export type AskWorkspaceInput = {
+  workspace_id: string;
   question: string;
-  workspace_id?: string;
 };
 
 export async function askWorkspace(
   input: AskWorkspaceInput,
 ): Promise<WorkspaceQAResponse> {
-  const res = await api.post<WorkspaceQAResponse>('/api/qa/workspace', {
-    workspace_id: input.workspace_id ?? DEV_WORKSPACE_ID,
+  // The backend may return either the normalised WorkspaceQAResponse shape
+  // {answer, confidence, citations, weak_evidence} or the raw run_skill
+  // shape {final_text, tool_calls, iterations} if the workspace-qa skill
+  // path bypasses the response wrapper. Normalise here so AskPage can
+  // always read `.answer`.
+  const res = await api.post<WorkspaceQAResponse & { final_text?: string }>('/api/qa/workspace', {
+    workspace_id: input.workspace_id,
     question: input.question,
   });
-  return res.data;
+  const data = res.data;
+  if (!data.answer && data.final_text) {
+    return {
+      answer: data.final_text,
+      confidence: (data as unknown as { confidence?: number }).confidence ?? 0.6,
+      citations: (data as unknown as { citations?: WorkspaceQACitation[] }).citations ?? [],
+      weak_evidence: (data as unknown as { weak_evidence?: boolean }).weak_evidence ?? false,
+    };
+  }
+  return data;
 }
 
 export async function searchCards(
@@ -333,7 +348,7 @@ export async function searchCards(
   const res = await api.get<CardSearchResponse>('/api/search/cards', {
     params: {
       q: params.q,
-      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      workspace_id: params.workspace_id,
       type: params.type,
       limit: params.limit,
       offset: params.offset,
@@ -363,7 +378,7 @@ export type TranscriptSearchResponse = {
 
 export type SearchTranscriptsParams = {
   q: string;
-  workspace_id?: string;
+  workspace_id: string;
   limit?: number;
   offset?: number;
 };
@@ -374,7 +389,7 @@ export async function searchTranscripts(
   const res = await api.get<TranscriptSearchResponse>('/api/search/transcripts', {
     params: {
       q: params.q,
-      workspace_id: params.workspace_id ?? DEV_WORKSPACE_ID,
+      workspace_id: params.workspace_id,
       limit: params.limit,
       offset: params.offset,
     },
@@ -395,6 +410,25 @@ export async function listOpenQuestions(
   params: ListActionItemsParams,
 ): Promise<ActionItemListResponse> {
   const res = await api.get<ActionItemListResponse>('/api/open-questions', { params });
+  return res.data;
+}
+
+// --- Workspaces ------------------------------------------------------------
+
+export type Workspace = {
+  id: string;
+  name: string;
+  description: string | null;
+  last_meeting_at: string | null;
+};
+
+export type WorkspaceListResponse = {
+  items: Workspace[];
+  total: number;
+};
+
+export async function listWorkspaces(): Promise<WorkspaceListResponse> {
+  const res = await api.get<WorkspaceListResponse>('/api/workspaces');
   return res.data;
 }
 

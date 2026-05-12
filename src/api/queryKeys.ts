@@ -6,6 +6,7 @@ type MeetingCardsFilters = {
 };
 
 export const queryKeys = {
+  workspaces: () => ['workspaces'] as const,
   meetings: (params: { workspace_id: string }) =>
     ['meetings', params.workspace_id] as const,
   meeting: (id: string) => ['meeting', id] as const,

@@ -10,13 +10,16 @@ export const TOTAL_COUNT_MAX_MEETINGS = 50;
  * the old `useDraftCardCount` (the per-card state machine is gone — there
  * is no "draft" anymore; the agent's audit + consolidation passes own
  * quality). Hook + file name kept stable to minimize churn elsewhere.
+ *
+ * The workspace id is read from the URL by `useMeetings()` → `useWorkspace()`
+ * — callers no longer pass it through.
  */
-export function useTotalCardCount(workspaceId?: string): {
+export function useTotalCardCount(): {
   count: number;
   isLoading: boolean;
   isError: boolean;
 } {
-  const { meetings } = useMeetings(workspaceId);
+  const { meetings } = useMeetings();
   const slice = meetings.slice(0, TOTAL_COUNT_MAX_MEETINGS);
 
   const results = useQueries({

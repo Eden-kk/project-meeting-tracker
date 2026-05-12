@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useTotalCardCount } from '../useDraftCardCount';
 import * as client from '../../api/client';
@@ -22,7 +23,15 @@ function summary(id: string): registry.StoredMeetingSummary {
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/ws/ws_dev/']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/*" element={<>{children}</>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
 }
 
 describe('useTotalCardCount', () => {

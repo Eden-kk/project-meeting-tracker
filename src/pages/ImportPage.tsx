@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { importConversation, type ImportInput, type Visibility } from '../api/client';
 import { MAX_UPLOAD_BYTES } from '../lib/constants';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { upsert as upsertMeeting, type StoredMeetingSummary } from '../lib/meetingsRegistry';
 import axios from 'axios';
 
@@ -37,6 +38,7 @@ function friendlyImportError(detail: unknown): string {
 }
 
 export default function ImportPage() {
+  const { workspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>('upload');
   const [title, setTitle] = useState('');
@@ -81,7 +83,7 @@ export default function ImportPage() {
         evidence_quality: 'unknown',
         status: 'processing',
       });
-      navigate(`/meetings/${data.meeting_id}/processing`);
+      navigate(`/ws/${workspaceId}/meetings/${data.meeting_id}/processing`);
     },
   });
 
@@ -99,7 +101,7 @@ export default function ImportPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const input: ImportInput = { title: trimmed, visibility, labels };
+    const input: ImportInput = { workspace_id: workspaceId, title: trimmed, visibility, labels };
     if (mode === 'paste') {
       input.pasted_transcript = pasted;
     } else if (file) {

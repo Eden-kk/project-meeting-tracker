@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { askHermes } from '../api/client';
 import type { AskHermesResponse, EvidenceCitation } from '../api/memory_cards.types';
 import { msToClock } from '../lib/time';
+import { AnswerBody } from './AnswerBody';
 
 type Message =
   | { id: string; role: 'user'; text: string }
@@ -83,8 +84,8 @@ export function AskHermesTab({ meetingId, onEvidenceClick }: Props) {
           const lowConfidence = m.weakEvidence || m.confidence < 0.5;
           return (
             <div key={m.id} className="self-start max-w-[80%] space-y-1">
-              <div className="rounded-lg bg-white px-3 py-2 text-sm text-gray-800 shadow-sm">
-                {m.text}
+              <div className="rounded-lg bg-white px-3 py-2 shadow-sm">
+                <AnswerBody text={m.text} onSegClick={onEvidenceClick} />
               </div>
               {lowConfidence && (
                 <div
