@@ -13,6 +13,7 @@ function makeCard(overrides: Partial<MemoryCard> = {}): MemoryCard {
     content: 'Bob proposed and Alice agreed.',
     speakers: ['Alice', 'Bob'],
     source_chunk_ids: ['seg_b', 'seg_c'],
+    confidence: 0.85,
     hidden_at: null,
     superseded_by_id: null,
     created_at: '2026-05-11T12:00:00.000Z',
