@@ -52,8 +52,15 @@ def transcribe_voice_file(
         path,
         language=None,
         vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
         word_timestamps=False,
-        condition_on_previous_text=True,
+        condition_on_previous_text=False,
+        initial_prompt="以下是一段会议录音的中英文混合转录,可能涉及项目讨论。",
+        beam_size=5,
+        temperature=[0.0, 0.2, 0.4, 0.6],
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
     )
 
     segments: list[dict] = []
