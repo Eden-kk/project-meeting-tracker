@@ -22,6 +22,7 @@ __all__ = [
     "meeting_qa",
     "followup_draft",
     "workspace_qa",
+    "project_orchestrator",
     "live_topic_tracker",
     "live_summary",
     "live_extraction",
@@ -487,6 +488,26 @@ def _run_live_extraction_openai(meeting_id: str, since_ms: int | None) -> dict:
         "summary": final_text.strip(),
         "iterations": iterations,
     }
+
+
+def project_orchestrator(question: str) -> dict:
+    """Storage-router-facing entrypoint for /api/qa/orchestrator.
+
+    Drives the per-project orchestrator (anthropic-only for now). The
+    orchestrator decides which project subagent(s) to dispatch based on
+    its registry, fans out under an asyncio.Semaphore(3), and synthesizes
+    one final answer with citations in the global form
+    ``[project:<ws>:meeting:<m>:card:<c>]``.
+
+    Sync-callable so it slots into the existing storage_router pattern;
+    internally wraps the async ``run_project_orchestrator`` with
+    ``asyncio.run``.
+    """
+    import asyncio as _asyncio
+
+    from .orchestrator import run_project_orchestrator as _run
+
+    return _asyncio.run(_run(question))
 
 
 def workspace_qa(workspace_id: str, question: str) -> dict:

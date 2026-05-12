@@ -81,6 +81,19 @@ def run_followup_draft(
     return fn(meeting_id=meeting_id, recipient=recipient, tone=tone)
 
 
+def run_project_orchestrator(question: str) -> dict:
+    """Per-project orchestrator entry. The orchestrator decides which
+    project subagent(s) to dispatch and synthesizes one user-facing
+    answer with citations in ``[project:<ws>:meeting:<m>:card:<c>]``
+    form. See ``hermes_plugin.orchestrator`` for the architecture.
+    """
+    mod = _import_or_503()
+    fn = getattr(mod, "project_orchestrator", None)
+    if fn is None:
+        raise HermesUnavailable("hermes_plugin.project_orchestrator not exported")
+    return fn(question=question)
+
+
 def run_workspace_qa(workspace_id: str, question: str) -> dict:
     """Wave 4.3: workspace-wide Hermes QA.
 
@@ -130,7 +143,11 @@ def _finalize_inner(meeting_id: str) -> None:
 
     from storage_router import storage
     from storage_router.db import SessionLocal
-    from storage_router.models.db import MeetingRow
+    from storage_router.models.db import (
+        ConversationArtifactRow,
+        MeetingRow,
+        Workspace,
+    )
     from storage_router.models.memory_cards import MemoryCardCreate
 
     with SessionLocal() as session:
@@ -198,6 +215,19 @@ def _finalize_inner(meeting_id: str) -> None:
             meeting.status = "finalized"
             meeting.finalized_at = datetime.now(UTC)
             meeting.last_finalize_error = None
+
+            # Denormalize meetings.finalized_at onto workspaces.last_meeting_at
+            # for the orchestrator's freshness heuristic. Best-effort: a miss
+            # here only delays a newly-finalized meeting from showing up in
+            # the orchestrator's fan-out criteria by one cache cycle.
+            artifact = session.get(
+                ConversationArtifactRow, meeting.artifact_id
+            )
+            if artifact is not None:
+                workspace = session.get(Workspace, artifact.workspace_id)
+                if workspace is not None:
+                    workspace.last_meeting_at = meeting.finalized_at
+
             session.commit()
     except Exception as exc:  # noqa: BLE001
         log.exception(

@@ -4,6 +4,19 @@ Each tool: validate kwargs through the matching input model, call the
 client, validate the response through the output model, return the
 JSON-serializable dump. Errors are funneled into ``ToolError`` so the
 runtime has a single recoverable-failure type to handle.
+
+NOTE — workspace-scoped tool ISOLATION INVARIANT:
+The ``project-subagent`` runtime relies on positional ``functools.partial``
+to remove ``workspace_id`` from each bound tool's exposed schema. For
+that to keep working, every workspace-scoped tool below
+(``search_workspace_cards_bound``, ``search_workspace_transcripts_bound``,
+``list_meeting_cards_workspace_bound``, etc.) MUST keep ``workspace_id``
+as its FIRST positional-only parameter with NO default. Demoting it to
+an optional kwarg would silently re-expose it via
+``inspect.signature(partial(fn, value))`` and break the schema
+isolation. The structural guard is the unit test
+``tests/hermes_plugin/test_subagent_isolation.py`` test 2 — run it on
+any change touching workspace-scoped tools.
 """
 
 from __future__ import annotations

@@ -214,6 +214,136 @@ def _stringify_result(payload: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Dynamic skill runner (per-project orchestrator + subagent path)
+# ---------------------------------------------------------------------------
+#
+# Intentionally a STANDALONE function, NOT a refactor of ``run_skill``'s
+# loop body into a shared helper. The orchestrator/subagent path is new
+# and untested at the production-flow level; ``run_skill`` drives the
+# meeting-finalization + meeting-qa code path that this slice MUST NOT
+# touch behaviorally. Duplication is cheaper than risk; see the
+# "Implementation rule (load-bearing)" note in
+# ~/.claude/plans/project-orchestrator-and-subagent.md.
+
+
+def run_skill_dynamic(
+    *,
+    system_prompt: str,
+    tools: dict[str, "Callable[..., dict]"],
+    tool_schemas: list[dict],
+    user_message: str,
+    max_iterations: int = 10,
+    anthropic_client: Optional["anthropic.Anthropic"] = None,
+    model: Optional[str] = None,
+) -> dict:
+    """Anthropic tool-use loop with caller-supplied system prompt + tools.
+
+    Differences from ``run_skill``:
+    - No skill_name / meeting_id / workspace_id bootstrapping; the caller
+      controls system + user messages directly.
+    - Tools are passed in as a ``{name: callable}`` dict; each callable
+      is invoked with ``**tool_input`` (kwargs from the LLM's JSON
+      input), NOT the ``(args, client)`` shape of the static TOOL_REGISTRY.
+    - ``tool_schemas`` is a pre-built list of ``{name, description, input_schema}``
+      dicts ready to pass as the Anthropic ``tools=`` param.
+    """
+    from typing import Callable  # noqa: F401 — for the annotation above
+
+    if model is None:
+        model = "claude-sonnet-4-5"
+
+    llm = anthropic_client if anthropic_client is not None else _default_anthropic_client()
+    messages: list[dict] = [{"role": "user", "content": user_message}]
+    tool_calls_log: list[dict] = []
+    iterations = 0
+    last_message: Any = None
+
+    while iterations < max_iterations:
+        iterations += 1
+        last_message = llm.messages.create(
+            model=model,
+            system=system_prompt,
+            tools=tool_schemas,
+            messages=messages,
+            max_tokens=4096,
+        )
+
+        assistant_content = _block_attr(last_message, "content") or []
+        messages.append({"role": "assistant", "content": assistant_content})
+
+        stop_reason = _block_attr(last_message, "stop_reason")
+        if stop_reason != "tool_use":
+            break
+
+        tool_results: list[dict] = []
+        for block in assistant_content:
+            if _block_attr(block, "type") != "tool_use":
+                continue
+            name = _block_attr(block, "name")
+            tool_use_id = _block_attr(block, "id")
+            tool_input = _serialize_tool_input(_block_attr(block, "input"))
+            try:
+                fn = tools[name]
+            except KeyError:
+                result = {
+                    "status_code": 404,
+                    "code": "unknown_tool",
+                    "message": f"No such tool: {name!r}",
+                }
+                tool_calls_log.append({"name": name, "input": tool_input, "result": result})
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "is_error": True,
+                        "content": _stringify_result(result),
+                    }
+                )
+                continue
+            try:
+                result = fn(**tool_input) if isinstance(tool_input, dict) else fn(tool_input)
+                is_error = False
+                content_payload: Any = result
+            except ToolError as exc:
+                result = exc.to_payload()
+                is_error = True
+                content_payload = result
+            except TypeError as exc:
+                # Bad kwargs (LLM emitted something not in the schema, e.g.
+                # ``workspace_id`` for a bound tool). Treat as a soft error
+                # so the loop can recover; the schema-isolation test relies
+                # on this surfacing as TypeError on the partial-bound side.
+                result = {
+                    "status_code": 422,
+                    "code": "invalid_input",
+                    "message": str(exc),
+                }
+                is_error = True
+                content_payload = result
+
+            tool_calls_log.append({"name": name, "input": tool_input, "result": result})
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "is_error": is_error,
+                    "content": _stringify_result(content_payload),
+                }
+            )
+
+        if not tool_results:
+            break
+
+        messages.append({"role": "user", "content": tool_results})
+
+    return {
+        "final_text": _final_text(last_message) if last_message is not None else "",
+        "tool_calls": tool_calls_log,
+        "iterations": iterations,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Chunked extraction
 # ---------------------------------------------------------------------------
 
