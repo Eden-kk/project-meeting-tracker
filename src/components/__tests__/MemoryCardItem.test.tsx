@@ -13,6 +13,8 @@ function makeCard(overrides: Partial<MemoryCard> = {}): MemoryCard {
     content: 'The team agreed to ship the auth migration by end of Q1.',
     speakers: ['Alice'],
     source_chunk_ids: ['seg_001'],
+    confidence: 0.9,
+    audit_reason: null,
     hidden_at: null,
     superseded_by_id: null,
     created_at: '2025-01-15T10:00:00.000Z',
@@ -62,5 +64,31 @@ describe('MemoryCardItem (Phase-3, read-only)', () => {
     );
     await user.click(screen.getByRole('button', { name: /view evidence/i }));
     expect(onEvidenceClick).toHaveBeenCalledWith('seg_042');
+  });
+
+  describe('Wave 3.2 — confidence pill', () => {
+    it('renders a green pill when confidence > 0.8', () => {
+      renderItem(makeCard({ confidence: 0.92 }));
+      const pill = screen.getByTestId('memory-card-confidence-pill');
+      expect(pill).toHaveAttribute('data-confidence-bucket', 'high');
+      expect(pill).toHaveTextContent('92%');
+    });
+
+    it('renders a yellow pill when confidence is in [0.5, 0.8]', () => {
+      renderItem(makeCard({ confidence: 0.65 }));
+      const pill = screen.getByTestId('memory-card-confidence-pill');
+      expect(pill).toHaveAttribute('data-confidence-bucket', 'medium');
+      expect(pill).toHaveTextContent('65%');
+    });
+
+    it('renders a red pill when confidence < 0.5 and exposes audit_reason as the tooltip', () => {
+      renderItem(
+        makeCard({ confidence: 0.3, audit_reason: 'Single anecdote; no metric cited.' }),
+      );
+      const pill = screen.getByTestId('memory-card-confidence-pill');
+      expect(pill).toHaveAttribute('data-confidence-bucket', 'low');
+      expect(pill).toHaveTextContent('30%');
+      expect(pill).toHaveAttribute('title', 'Single anecdote; no metric cited.');
+    });
   });
 });
