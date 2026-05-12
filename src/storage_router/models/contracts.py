@@ -157,6 +157,15 @@ class Meeting(BaseModel):
             "status reverts to `ready` so the user can re-trigger."
         ),
     )
+    speaker_label_map: dict[str, str] | None = Field(
+        None,
+        description=(
+            "Wave 8.4: per-meeting friendly speaker names "
+            "({'speaker_2': 'Alice', ...}). Applied at read time on "
+            "/api/live-meetings/{id}/segments so renaming does not rewrite "
+            "historical rows."
+        ),
+    )
 
 
 class ConversationArtifact(BaseModel):

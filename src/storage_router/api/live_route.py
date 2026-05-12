@@ -340,6 +340,11 @@ def list_segments(
         except StopIteration:
             pass
 
+    # Wave 8.4: apply per-meeting speaker_label_map at read time so a
+    # live rename never rewrites historical rows. The map's value wins
+    # over a per-row `speaker_name` if both are present (the rename is
+    # the user's explicit choice).
+    label_map: dict[str, str] = dict(meeting.speaker_label_map or {})
     return {
         "meeting_id": meeting_id,
         "status": meeting.status,
@@ -351,7 +356,9 @@ def list_segments(
             {
                 "segment_id": r.id,
                 "speaker_id": r.speaker_id,
-                "speaker_name": r.speaker_name,
+                "speaker_name": (
+                    label_map.get(r.speaker_id) if r.speaker_id else None
+                ) or r.speaker_name,
                 "start_ms": r.start_ms,
                 "end_ms": r.end_ms,
                 "text": r.text,
