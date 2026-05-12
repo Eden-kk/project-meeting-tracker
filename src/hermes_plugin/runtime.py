@@ -677,9 +677,54 @@ def run_chunked_extraction(
     }
 
 
+def run_live_summary(
+    meeting_id: str,
+    *,
+    client: Optional[StorageRouterClient] = None,
+    anthropic_client: Optional["anthropic.Anthropic"] = None,
+    model: str = "claude-sonnet-4-5",
+    max_iterations: int = 4,
+) -> dict:
+    """Wave 6.3: rolling summary tick during a live meeting.
+
+    Drives the ``live-meeting-summary`` skill with only
+    ``get_meeting_transcript`` bound. Returns
+    ``{"summary": str, "iterations": int}``. The caller (the live
+    scheduler) is responsible for persisting the returned ``summary``
+    to ``meetings.live_summary``.
+    """
+    storage_client = client if client is not None else StorageRouterClient()
+    llm = (
+        anthropic_client
+        if anthropic_client is not None
+        else _default_anthropic_client()
+    )
+
+    bootstrap = (
+        f"meeting_id: {meeting_id}\n"
+        "Call get_meeting_transcript once for this meeting, then write a "
+        "3-5 sentence rolling summary of what has been discussed so far. "
+        "End your turn with the summary as plain text."
+    )
+    result = _run_bounded_skill(
+        skill_name="live-meeting-summary",
+        bootstrap=bootstrap,
+        allowed_tools=["get_meeting_transcript"],
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
+        max_iterations=max_iterations,
+    )
+    return {
+        "summary": (result.get("final_text") or "").strip(),
+        "iterations": result.get("iterations", 0),
+    }
+
+
 __all__ = [
     "run_skill",
     "run_chunked_extraction",
     "run_card_audit",
     "run_card_consolidation",
+    "run_live_summary",
 ]
