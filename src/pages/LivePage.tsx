@@ -6,6 +6,7 @@ import {
   uploadLiveChunk,
   type LiveSegment,
 } from '../api/client';
+import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
 
@@ -256,6 +257,13 @@ export default function LivePage() {
           </p>
         )}
       </section>
+
+      {/* Wave 6.4: side panel that lists cards as the live extraction
+          tick produces them. Stops polling when the meeting ends. */}
+      <LiveDraftCardsPanel
+        meetingId={meetingId}
+        active={phase === 'recording'}
+      />
 
       <section className="rounded border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-lg font-medium">Live transcript</h2>

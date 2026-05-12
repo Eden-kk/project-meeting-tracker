@@ -677,6 +677,142 @@ def run_chunked_extraction(
     }
 
 
+def run_live_extraction(
+    meeting_id: str,
+    since_ms: Optional[int],
+    *,
+    overlap_ms: int = 30_000,
+    client: Optional[StorageRouterClient] = None,
+    anthropic_client: Optional["anthropic.Anthropic"] = None,
+    model: str = "claude-sonnet-4-5",
+    max_iterations: int = 8,
+) -> dict:
+    """Wave 6.4: per-tick draft-card extraction over a recent transcript window.
+
+    Pulls the full transcript-so-far for ``meeting_id``, filters it to
+    the window ``[max(0, since_ms - overlap_ms), latest_end_ms]``, and
+    drives the ``live-meeting-extraction`` skill over that window with
+    only ``create_draft_memory_card`` bound. Returns
+    ``{cards_created, window_start_ms, window_end_ms, summary, iterations}``.
+
+    The ``since_ms`` argument is the ``last_live_extraction_end_ms``
+    high-water mark from the previous tick (None on the first tick —
+    we then process from time zero up to the latest segment). The 30s
+    overlap is so a finding spoken across a tick boundary is caught
+    by the adjacent window; the consolidation pass at /end merges
+    duplicates.
+
+    The caller (the live scheduler) is responsible for persisting the
+    returned ``window_end_ms`` back to ``meetings.last_live_extraction_end_ms``
+    so the next tick advances the watermark.
+    """
+    storage_client = client if client is not None else StorageRouterClient()
+    llm = (
+        anthropic_client
+        if anthropic_client is not None
+        else _default_anthropic_client()
+    )
+
+    transcript = get_meeting_transcript(
+        {"meeting_id": meeting_id}, storage_client
+    )
+    segments: list[dict] = transcript.get("segments", [])
+    if not segments:
+        return {
+            "cards_created": 0,
+            "window_start_ms": since_ms or 0,
+            "window_end_ms": since_ms or 0,
+            "summary": "",
+            "iterations": 0,
+        }
+
+    # Compute window. ``since_ms is None`` -> start at 0 (first tick).
+    base_since = since_ms if since_ms is not None else 0
+    window_start = max(0, base_since - overlap_ms)
+    # The "now" cap is the latest segment we've seen. We deliberately
+    # do NOT trust wall-clock here — we want the watermark to advance
+    # in transcript time, not real time, so a slow STT path doesn't
+    # cause us to skip ahead.
+    end_candidates = [
+        s.get("end_ms") for s in segments if s.get("end_ms") is not None
+    ]
+    if not end_candidates:
+        # No segment has a known end time — bail rather than emit a
+        # zero-width window.
+        return {
+            "cards_created": 0,
+            "window_start_ms": window_start,
+            "window_end_ms": window_start,
+            "summary": "",
+            "iterations": 0,
+        }
+    window_end = max(int(x) for x in end_candidates)
+
+    # Filter segments to the window. Keep a segment if any portion of
+    # it overlaps [window_start, window_end] — we err on the side of
+    # inclusion so the model sees boundary segments in full.
+    in_window: list[dict] = []
+    for seg in segments:
+        seg_start = seg.get("start_ms")
+        seg_end = seg.get("end_ms")
+        if seg_start is None:
+            continue
+        if seg_end is None:
+            seg_end = seg_start
+        if seg_end < window_start:
+            continue
+        if seg_start > window_end:
+            continue
+        in_window.append(seg)
+
+    if not in_window:
+        return {
+            "cards_created": 0,
+            "window_start_ms": window_start,
+            "window_end_ms": window_end,
+            "summary": "",
+            "iterations": 0,
+        }
+
+    # Reuse the chunk-loop infra: build a synthetic Chunk and call the
+    # same per-chunk runner, but pointed at the live skill prompt.
+    synthetic_chunk = Chunk(
+        index=0,
+        start_ms=window_start,
+        end_ms=window_end,
+        segments=in_window,
+        speakers=_collect_speakers_from_segments(in_window),
+    )
+    system = _load_skill("live-meeting-extraction")
+    cards_in_window, final_text = _run_chunk_loop(
+        meeting_id=meeting_id,
+        chunk=synthetic_chunk,
+        chunk_count=1,
+        system=system,
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
+        max_iterations=max_iterations,
+    )
+    return {
+        "cards_created": cards_in_window,
+        "window_start_ms": window_start,
+        "window_end_ms": window_end,
+        "summary": (final_text or "").strip(),
+        "iterations": 1,
+    }
+
+
+def _collect_speakers_from_segments(segments: list[dict]) -> list[str]:
+    """De-duped speaker names in first-seen order (live-extraction helper)."""
+    seen: dict[str, None] = {}
+    for s in segments:
+        name = s.get("speaker_name")
+        if name and name not in seen:
+            seen[name] = None
+    return list(seen.keys())
+
+
 def run_live_summary(
     meeting_id: str,
     *,
@@ -727,4 +863,5 @@ __all__ = [
     "run_card_audit",
     "run_card_consolidation",
     "run_live_summary",
+    "run_live_extraction",
 ]
