@@ -100,6 +100,12 @@ class MeetingRow(Base):
     # meeting is `live`. NULL when no topic has settled, or when the
     # topic-tracker skill refused for too-sparse input.
     current_topic: Mapped[str | None] = mapped_column(Text)
+    # Phase 2 follow-up — summary paragraph produced by the
+    # `meeting-finalization` Hermes skill, persisted at finalize time so
+    # the SPA's Summary tab can render it without re-invoking the LLM.
+    # NULL until the first successful finalize completes. Re-finalize
+    # overwrites in place.
+    finalized_summary: Mapped[str | None] = mapped_column(Text)
     # Wave 6.3 — rolling summary refreshed by the live extraction loop
     # while the meeting is still ``status='live'``. Updated in place every
     # ~120s; NULL until the first tick succeeds.

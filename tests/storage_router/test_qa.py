@@ -92,6 +92,9 @@ async def test_finalize_happy_path(client, monkeypatch) -> None:
         meeting = s.get(MeetingRow, mid)
         assert meeting.status == "finalized"
         assert meeting.finalized_at is not None
+        # New: finalized_summary persisted from the skill response so the
+        # SPA's Summary tab can render it without re-invoking the LLM.
+        assert meeting.finalized_summary == "It was a meeting."
         rows = s.execute(
             select(MemoryCardRow).where(MemoryCardRow.meeting_id == mid)
         ).scalars().all()

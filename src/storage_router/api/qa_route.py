@@ -90,6 +90,9 @@ def finalize_meeting(
         cards_created = int(result.get("cards_created", 0))
 
     finalized_at = datetime.now(UTC)
+    summary = result.get("summary")
+    if isinstance(summary, str):
+        meeting.finalized_summary = summary
     meeting.status = "finalized"
     meeting.finalized_at = finalized_at
     session.commit()

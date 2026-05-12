@@ -175,6 +175,15 @@ class Meeting(BaseModel):
             "skill refused for too-sparse input."
         ),
     )
+    finalized_summary: str | None = Field(
+        None,
+        description=(
+            "Summary paragraph produced by the `meeting-finalization` Hermes "
+            "skill, persisted at finalize time so the SPA's Summary tab can "
+            "render it without re-invoking the LLM. NULL until the first "
+            "successful finalize completes."
+        ),
+    )
 
 
 class ConversationArtifact(BaseModel):

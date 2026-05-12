@@ -63,13 +63,27 @@ describe('MeetingReviewPage', () => {
     expect(ask).not.toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('Summary tab shows placeholder copy', async () => {
+  it('Summary tab shows placeholder when meeting has no finalized_summary', async () => {
     const user = userEvent.setup();
     renderAt('/meetings/m_fixture001');
     await waitFor(() => screen.getAllByTestId('transcript-row'));
     await user.click(screen.getByRole('tab', { name: /^summary$/i }));
     expect(
-      screen.getByText(/summary not yet available — extraction lands in phase 2/i),
+      screen.getByText(/summary will appear after hermes finalizes/i),
+    ).toBeInTheDocument();
+  });
+
+  it('Summary tab renders finalized_summary text when present', async () => {
+    vi.spyOn(client, 'getMeeting').mockResolvedValue({
+      ...meetingFixture(),
+      finalized_summary: 'Team agreed to ship Phase 2 next quarter.',
+    });
+    const user = userEvent.setup();
+    renderAt('/meetings/m_fixture001');
+    await waitFor(() => screen.getAllByTestId('transcript-row'));
+    await user.click(screen.getByRole('tab', { name: /^summary$/i }));
+    expect(
+      screen.getByText(/team agreed to ship phase 2 next quarter/i),
     ).toBeInTheDocument();
   });
 

@@ -24,9 +24,16 @@ DATA_TABLES = [
 
 
 def _truncate_data() -> None:
-    """Wipe per-meeting data created by tests; preserve schema + ws_dev/u_dev seed."""
-    with engine.begin() as conn:
-        conn.execute(text("TRUNCATE " + ", ".join(DATA_TABLES) + " RESTART IDENTITY CASCADE"))
+    """Wipe per-meeting data created by tests; preserve schema + ws_dev/u_dev seed.
+
+    No-ops silently when the database is unreachable (e.g. unit tests that
+    mock all DB access and run without a live Postgres instance).
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("TRUNCATE " + ", ".join(DATA_TABLES) + " RESTART IDENTITY CASCADE"))
+    except Exception:  # noqa: BLE001 — OperationalError when no DB available
+        pass
 
 
 @pytest.fixture(autouse=True)
