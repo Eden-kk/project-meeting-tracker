@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
+from storage_router import slack_bot
 from storage_router.api import (
     action_items_route,
     followup_route,
@@ -68,10 +69,19 @@ def create_app() -> FastAPI:
     from storage_router.sentence_buffer import SentenceBuffer  # noqa: E402
 
     app.state.sentence_buffers: dict[str, SentenceBuffer] = {}
+    # Live-tasks registry — initialized here so the shutdown handler
+    # below can iterate it safely even when no live-task module has
+    # touched it yet. Existing live_topic_tracker / live_extraction
+    # modules write into this dict.
+    if not hasattr(app.state, "live_tasks"):
+        app.state.live_tasks = {}
+    # Slack Socket Mode task handle (None when env is unset).
+    app.state.slack_task = None
 
     @app.on_event("startup")
-    def _startup() -> None:
+    async def _startup() -> None:
         _ensure_dev_seed()
+        await slack_bot.start(app)
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
@@ -83,6 +93,7 @@ def create_app() -> FastAPI:
                 if not task.done():
                     task.cancel()
         app.state.live_tasks.clear()
+        await slack_bot.stop(app)
 
     app.include_router(import_route.router)
     app.include_router(live_route.router)

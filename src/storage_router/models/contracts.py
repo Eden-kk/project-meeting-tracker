@@ -191,6 +191,16 @@ class Meeting(BaseModel):
             "NULL until the first tick succeeds or when interviewee_name is not set."
         ),
     )
+    finalized_summary: str | None = Field(
+        None,
+        description=(
+            "Slack bot MVP: paragraph summary produced by the "
+            "meeting-finalization skill, persisted so downstream consumers "
+            "(Slack notifier, future re-share) can read it without a "
+            "second LLM call. NULL until the meeting has been finalized "
+            "by the runtime."
+        ),
+    )
 
 
 class ConversationArtifact(BaseModel):
