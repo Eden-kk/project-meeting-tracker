@@ -33,7 +33,7 @@ function renderAt(path: string) {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/meetings/:id/processing" element={<ProcessingPage />} />
+          <Route path="/ws/:workspaceId/meetings/:id/processing" element={<ProcessingPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -48,35 +48,35 @@ describe('ProcessingPage', () => {
 
   it('renders Transcribing/parsing as active when meeting is processing', async () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'processing' }));
-    renderAt('/meetings/m_1/processing');
+    renderAt('/ws/ws_dev/meetings/m_1/processing');
     expect(await screen.findByText(/transcribing\/parsing/i)).toBeInTheDocument();
   });
 
   it('navigates to review on ready', async () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'ready' }));
-    renderAt('/meetings/m_1/processing');
+    renderAt('/ws/ws_dev/meetings/m_1/processing');
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1', { replace: true }),
+      expect(navigateMock).toHaveBeenCalledWith('/ws/ws_dev/meetings/m_1', { replace: true }),
     );
   });
 
   it('renders Hermes extraction as active when status is finalizing', async () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'finalizing' }));
-    renderAt('/meetings/m_1/processing');
+    renderAt('/ws/ws_dev/meetings/m_1/processing');
     // Status timeline marks Hermes extraction with the extracting label
     // when the background task is mid-flight.
     expect(await screen.findByText(/extracting/i)).toBeInTheDocument();
     // Same as `ready`, the user is forwarded to the meeting view so they
     // can read transcript / cards while finalize finishes.
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1', { replace: true }),
+      expect(navigateMock).toHaveBeenCalledWith('/ws/ws_dev/meetings/m_1', { replace: true }),
     );
   });
 
   it('shows failed card with try-again link', async () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'failed' }));
-    renderAt('/meetings/m_1/processing');
+    renderAt('/ws/ws_dev/meetings/m_1/processing');
     expect(await screen.findByText(/processing failed/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /try again/i })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: /try again/i })).toHaveAttribute('href', '/ws/ws_dev/');
   });
 });

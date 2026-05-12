@@ -13,7 +13,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { listMeetings, type Meeting } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
-import { DEV_WORKSPACE_ID } from '../lib/constants';
+import { useWorkspace } from './useWorkspace';
 import { useMeetingsRegistry } from './useMeetingsRegistry';
 import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
 
@@ -58,10 +58,11 @@ export function mergeServerAndRegistry(
   return merged;
 }
 
-export function useMeetings(workspaceId: string = DEV_WORKSPACE_ID): {
+export function useMeetings(): {
   meetings: StoredMeetingSummary[];
   isOffline: boolean;
 } {
+  const { workspaceId } = useWorkspace();
   const registry = useMeetingsRegistry();
   const query = useQuery({
     queryKey: queryKeys.meetings({ workspace_id: workspaceId }),

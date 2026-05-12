@@ -1,17 +1,21 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useWorkspace } from '../hooks/useWorkspace';
 
 type NavItem = { to: string; label: string; end?: boolean };
+// Relative-to-workspace nav targets. Concatenated with the current
+// workspace prefix at render time so the active workspaceId stays in
+// the URL.
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Home', end: true },
-  { to: '/meetings', label: 'Meetings' },
-  { to: '/ask', label: 'Ask Hermes' },
-  { to: '/import', label: 'Import' },
-  { to: '/live', label: 'Live' },
-  { to: '/action-items', label: 'Action items' },
-  { to: '/open-questions', label: 'Open questions' },
+  { to: '', label: 'Home', end: true },
+  { to: 'meetings', label: 'Meetings' },
+  { to: 'ask', label: 'Ask Hermes' },
+  { to: 'import', label: 'Import' },
+  { to: 'live', label: 'Live' },
+  { to: 'action-items', label: 'Action items' },
+  { to: 'open-questions', label: 'Open questions' },
 ];
-const SECONDARY_ITEMS: NavItem[] = [{ to: '/settings', label: 'Settings' }];
+const SECONDARY_ITEMS: NavItem[] = [{ to: 'settings', label: 'Settings' }];
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
   const base = 'block rounded px-3 py-2 text-sm';
@@ -19,11 +23,16 @@ function navLinkClass({ isActive }: { isActive: boolean }) {
 }
 
 function NavList() {
-  const renderLink = (item: NavItem) => (
-    <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass}>
-      {item.label}
-    </NavLink>
-  );
+  const { workspaceId } = useWorkspace();
+  const prefix = `/ws/${workspaceId}`;
+  const renderLink = (item: NavItem) => {
+    const path = item.to ? `${prefix}/${item.to}` : `${prefix}/`;
+    return (
+      <NavLink key={item.to} to={path} end={item.end} className={navLinkClass}>
+        {item.label}
+      </NavLink>
+    );
+  };
   return (
     <nav aria-label="Main navigation" className="flex flex-col gap-1">
       {NAV_ITEMS.map(renderLink)}
@@ -34,11 +43,14 @@ function NavList() {
 }
 
 function SidebarContent() {
+  const { workspaceId, currentWorkspace } = useWorkspace();
   return (
     <div className="flex h-full flex-col p-4">
       <div className="mb-4 text-lg font-semibold">Tracker</div>
       <NavList />
-      <div className="mt-auto text-xs text-gray-500">ws_dev</div>
+      <div className="mt-auto text-xs text-gray-500">
+        {currentWorkspace?.name ?? workspaceId}
+      </div>
     </div>
   );
 }

@@ -20,6 +20,7 @@ from storage_router.api import (
     qa_orchestrator_route,
     qa_route,
     search_route,
+    workspaces_route,
 )
 from storage_router.blob import LocalFsBlobStore
 from storage_router.config import settings
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(action_items_route.router)
     app.include_router(followup_route.router)
     app.include_router(search_route.router)
+    app.include_router(workspaces_route.router)
 
     # Optional: serve a built frontend SPA out of the same origin.
     # Set FRONTEND_DIST=/path/to/frontend/dist when launching to enable.

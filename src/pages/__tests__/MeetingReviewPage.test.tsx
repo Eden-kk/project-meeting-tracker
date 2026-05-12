@@ -28,7 +28,7 @@ function renderAt(path: string) {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/meetings/:id" element={<MeetingReviewPage />} />
+          <Route path="/ws/:workspaceId/meetings/:id" element={<MeetingReviewPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -47,13 +47,13 @@ describe('MeetingReviewPage', () => {
   });
 
   it('renders all fixture segments in Transcript tab', async () => {
-    renderAt('/meetings/m_fixture001');
+    renderAt('/ws/ws_dev/meetings/m_fixture001');
     const rows = await screen.findAllByTestId('transcript-row');
     expect(rows).toHaveLength(expectedNormalized.segments.length);
   });
 
   it('only Share / Export remains disabled; Memory and Ask are active', async () => {
-    renderAt('/meetings/m_fixture001');
+    renderAt('/ws/ws_dev/meetings/m_fixture001');
     const share = await screen.findByRole('tab', { name: /share \/ export/i });
     expect(share).toHaveAttribute('aria-disabled', 'true');
     expect(share).toHaveAttribute('title', 'Arrives in Phase 8');
@@ -65,7 +65,7 @@ describe('MeetingReviewPage', () => {
 
   it('Summary tab shows placeholder when meeting has no finalized_summary', async () => {
     const user = userEvent.setup();
-    renderAt('/meetings/m_fixture001');
+    renderAt('/ws/ws_dev/meetings/m_fixture001');
     await waitFor(() => screen.getAllByTestId('transcript-row'));
     await user.click(screen.getByRole('tab', { name: /^summary$/i }));
     expect(
@@ -79,7 +79,7 @@ describe('MeetingReviewPage', () => {
       finalized_summary: 'Team agreed to ship Phase 2 next quarter.',
     });
     const user = userEvent.setup();
-    renderAt('/meetings/m_fixture001');
+    renderAt('/ws/ws_dev/meetings/m_fixture001');
     await waitFor(() => screen.getAllByTestId('transcript-row'));
     await user.click(screen.getByRole('tab', { name: /^summary$/i }));
     expect(
@@ -98,7 +98,7 @@ describe('MeetingReviewPage', () => {
     Element.prototype.scrollIntoView = scrollSpy;
 
     const user = userEvent.setup();
-    renderAt('/meetings/m_fixture001');
+    renderAt('/ws/ws_dev/meetings/m_fixture001');
 
     // Wait for the meeting + transcript to load (Loading… is replaced by the tab bar).
     await screen.findAllByTestId('transcript-row');

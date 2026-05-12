@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { SourceIcon } from './SourceIcon';
 import { StatusPill } from './StatusPill';
 
@@ -10,9 +11,10 @@ function formatDate(iso: string): string {
 }
 
 export function MeetingCard({ meeting }: { meeting: StoredMeetingSummary }) {
+  const { workspaceId } = useWorkspace();
   return (
     <Link
-      to={`/meetings/${meeting.meeting_id}`}
+      to={`/ws/${workspaceId}/meetings/${meeting.meeting_id}`}
       className="block rounded border border-gray-200 p-4 transition hover:border-gray-400"
     >
       <div className="flex items-start justify-between gap-2">

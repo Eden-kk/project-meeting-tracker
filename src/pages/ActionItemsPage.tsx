@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listActionItems } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
-import { DEV_WORKSPACE_ID } from '../lib/constants';
+import { useWorkspace } from '../hooks/useWorkspace';
 import { ActionItemsTable } from '../components/ActionItemsTable';
 import { EmptyState } from '../components/EmptyState';
 
@@ -40,6 +40,7 @@ export type DashboardProps = {
 };
 
 export function DashboardView({ title, emptyTitle, emptyBody, queryFn, queryKey }: DashboardProps) {
+  const { workspaceId } = useWorkspace();
   const [speaker, setSpeaker] = useState('');
   const [meetingId, setMeetingId] = useState('');
   const [since, setSince] = useState('');
@@ -47,13 +48,13 @@ export function DashboardView({ title, emptyTitle, emptyBody, queryFn, queryKey 
 
   const params = useMemo(
     () => ({
-      workspace_id: DEV_WORKSPACE_ID,
+      workspace_id: workspaceId,
       speaker: speaker.trim() || undefined,
       meeting_id: meetingId.trim() || undefined,
       since: since ? new Date(since).toISOString() : undefined,
       until: until ? new Date(until).toISOString() : undefined,
     }),
-    [speaker, meetingId, since, until],
+    [workspaceId, speaker, meetingId, since, until],
   );
 
   const { data, isLoading, isError } = useQuery({

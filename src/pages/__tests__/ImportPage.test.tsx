@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ImportPage from '../ImportPage';
 import * as client from '../../api/client';
@@ -15,10 +15,16 @@ vi.mock('react-router-dom', async () => {
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+    items: [{ id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null }],
+    total: 1,
+  });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <ImportPage />
+      <MemoryRouter initialEntries={['/ws/ws_dev/import']}>
+        <Routes>
+          <Route path="/ws/:workspaceId/import" element={<ImportPage />} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -61,7 +67,7 @@ describe('ImportPage', () => {
     const arg = spy.mock.calls[0][0];
     expect(arg.pasted_transcript).toBe('hello world');
     expect(arg.title).toBe('My meeting');
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/meetings/m_1/processing'));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/ws/ws_dev/meetings/m_1/processing'));
     const entry = getRegistryEntry('m_1');
     // Title is no longer cached client-side; it lives in Postgres and
     // arrives via GET /api/meetings.  Registry keeps only the offline
