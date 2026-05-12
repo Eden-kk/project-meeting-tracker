@@ -268,6 +268,11 @@ async def receive_chunk(
         )
         # Fallback so the UI still progresses; downstream finalize can ignore
         # rows with confidence=0.0 + the placeholder text.
+        # NOTE: this branch is only reached on an *exception* (unreachable
+        # voice-ingest, HTTP 5xx, etc.).  A chunk that Whisper processes
+        # successfully but returns zero segments (silence / below-threshold
+        # noise) falls through to the segment loop below and produces zero
+        # rows — no placeholder is emitted for silence.
         fallback = SpeakerSegmentRow(
             id=new_id("seg"),
             meeting_id=meeting_id,
@@ -287,6 +292,21 @@ async def receive_chunk(
             "segments_added": 1,
             "bytes": len(blob),
             "transcribed": False,
+        }
+
+    # Whisper returned 0 segments — silence or sub-threshold noise.
+    # Emit nothing; the UI will keep showing "Waiting for speech…".
+    if not transcript.segments:
+        logger.debug(
+            "voice-ingest returned 0 segments (silence) for meeting=%s seq=%s",
+            meeting_id,
+            seq,
+        )
+        return {
+            "seq": seq,
+            "segments_added": 0,
+            "bytes": len(blob),
+            "transcribed": True,
         }
 
     # Wave 8.6 — feed decoded PCM to the per-meeting diarizer so assign()

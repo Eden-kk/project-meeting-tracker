@@ -78,6 +78,33 @@ export default function LivePage() {
     }
   }, []);
 
+  // Used by the rename-success handler to do a full REPLACE of the segment
+  // list (not an append). Resets the cursor and overwrites React state
+  // atomically so concurrent interval ticks that race with the reset cannot
+  // append a second copy of previously-seen segments.
+  const refetchAllSegments = useCallback(async () => {
+    const id = meetingRef.current;
+    if (!id) return;
+    // Reset the cursor BEFORE the fetch so any concurrent interval tick
+    // that fires between now and the response resolving sees the same null
+    // cursor. The first one to resolve will set the cursor and subsequent
+    // ticks will correctly fetch only NEW segments.
+    lastSegIdRef.current = null;
+    try {
+      const resp = await listLiveSegments(id, null);
+      setLiveSummary(resp.live_summary ?? null);
+      setCurrentTopic(resp.current_topic ?? null);
+      // REPLACE — not append — so we don't double-render prior segments.
+      lastSegIdRef.current =
+        resp.segments.length > 0
+          ? resp.segments[resp.segments.length - 1].segment_id
+          : null;
+      setSegments(resp.segments);
+    } catch (err) {
+      console.warn('live-refetch failed', err);
+    }
+  }, []);
+
   const startPolling = useCallback(() => {
     stopPolling();
     pollSegments();
@@ -317,10 +344,13 @@ export default function LivePage() {
           meetingId={meetingId}
           speakerId={renamingSpeaker}
           onSuccess={() => {
-            // Force a fresh poll so renamed segments appear immediately.
-            lastSegIdRef.current = null;
-            setSegments([]);
-            pollSegments();
+            // Full replace-refetch so renamed speaker labels appear
+            // immediately without duplicating previously-rendered rows.
+            // refetchAllSegments resets the cursor and writes setSegments
+            // with a plain assignment (not an append), making it safe even
+            // when an interval tick races concurrently.
+            setRenamingSpeaker(null);
+            void refetchAllSegments();
           }}
           onClose={() => setRenamingSpeaker(null)}
         />
