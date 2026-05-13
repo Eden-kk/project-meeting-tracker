@@ -23,11 +23,23 @@ def transcribe_voice_file(path: Path) -> NormalizedTranscript:
 
     voice-ingest's API takes a single multipart field named ``audio``
     (UploadFile) plus an optional ``meeting_id`` form field.
+
+    ``follow_redirects=True``: when voice-ingest is hosted on Modal and a
+    request runs longer than Modal's HTTP-sync window (~150 s, common for
+    mp4 + Whisper-large-v3), Modal returns a 303 See Other pointing at a
+    ``?__modal_function_call_id=…`` polling URL. httpx defaults to NOT
+    following redirects on POST, so the response is mistakenly treated
+    as a 3xx error and the artifact ends up in `failed`.
     """
     url = settings.voice_ingest_url.rstrip("/") + "/voice/transcribe"
     with open(path, "rb") as f:
         files = {"audio": (path.name, f, "audio/webm")}
-        resp = httpx.post(url, files=files, timeout=settings.voice_ingest_timeout_seconds)
+        resp = httpx.post(
+            url,
+            files=files,
+            timeout=settings.voice_ingest_timeout_seconds,
+            follow_redirects=True,
+        )
     resp.raise_for_status()
     return NormalizedTranscript.model_validate(resp.json())
 
