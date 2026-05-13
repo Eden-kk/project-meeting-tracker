@@ -156,7 +156,56 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /** Soft-delete a meeting */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Meeting soft-deleted */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            meeting_id: string;
+                            /** Format: date-time */
+                            deleted_at: string;
+                            blob_removed: boolean;
+                        };
+                    };
+                };
+                /** @description Meeting not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Meeting already deleted */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            error?: {
+                                /** @example already_deleted */
+                                code?: string;
+                                message?: string;
+                            };
+                        };
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -654,11 +703,13 @@ export interface paths {
          * Cross-meeting keyword search over transcript segments (Wave 4.1)
          * @description Postgres FTS over `speaker_segments.text` (English config). Hits link
          *     back to the originating meeting + segment. Scoped to a workspace.
+         *     When `q` is omitted, returns the most recent segments in the
+         *     workspace (no FTS ranking; rank=0, snippet empty).
          */
         get: {
             parameters: {
                 query: {
-                    q: string;
+                    q?: string;
                     workspace_id: string;
                     limit?: number;
                     offset?: number;
@@ -706,12 +757,16 @@ export interface paths {
          * Cross-meeting keyword search over memory cards (Wave 4.2)
          * @description Postgres FTS over `memory_cards.title || ' ' || content` (English
          *     config). Honors `hidden_at IS NULL` (the agent's soft-delete flag).
-         *     Optional `type` filter narrows to a single card type.
+         *     Optional `type` filter narrows to a single card type. When `q` is
+         *     omitted, returns the highest-confidence / most recent cards
+         *     matching the remaining filters (workspace, optional type) — used
+         *     by the `workspace-qa` skill for general project-progress
+         *     questions.
          */
         get: {
             parameters: {
                 query: {
-                    q: string;
+                    q?: string;
                     workspace_id: string;
                     type?: "decision" | "action_item" | "pain_point" | "quote" | "requirement" | "risk" | "open_question" | "technical_detail";
                     limit?: number;
@@ -850,9 +905,8 @@ export interface components {
              */
             last_finalize_error?: string | null;
             /**
-             * @description Summary paragraph produced by the meeting-finalization Hermes skill,
-             *     persisted at finalize time so the SPA Summary tab can render it without
-             *     re-invoking the LLM. NULL until the first successful finalize completes.
+             * @description Single-narrative summary produced by the chunked-summarization
+             *     pass during finalize; rendered as markdown by the SPA Summary tab.
              */
             finalized_summary?: string | null;
         };

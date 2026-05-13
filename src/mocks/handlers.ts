@@ -17,7 +17,7 @@ import type {
 } from '../api/memory_cards.types';
 import { expectedNormalized, makeFixtureCards, makeFixtureMeeting } from './fixtures';
 
-type Entry = { meeting: Meeting; createdAt: number; cards: MemoryCard[] };
+type Entry = { meeting: Meeting; createdAt: number; cards: MemoryCard[]; deleted_at?: string };
 
 const meetings = new Map<string, Entry>();
 const READY_AFTER_MS = 2000;
@@ -114,6 +114,7 @@ export const handlers = [
     const limit = Number(url.searchParams.get('limit') ?? 50);
     const offset = Number(url.searchParams.get('offset') ?? 0);
     const all = [...meetings.entries()]
+      .filter(([, entry]) => !entry.deleted_at)
       .sort((a, b) => b[1].createdAt - a[1].createdAt)
       .map(([, entry]) => ({ ...entry.meeting, status: currentStatus(entry) }));
     const body: MeetingsList = {
@@ -201,6 +202,23 @@ export const handlers = [
     entry.meeting.finalized_at = now;
     const body: FinalizeMeetingResponse = { meeting_id: id, finalized_at: now };
     return HttpResponse.json(body);
+  }),
+
+  http.delete('*/api/meetings/:id', ({ params }) => {
+    const id = params.id as string;
+    const entry = meetings.get(id);
+    if (!entry) {
+      return HttpResponse.json({ detail: 'meeting not found' }, { status: 404 });
+    }
+    if (entry.deleted_at) {
+      return HttpResponse.json(
+        { error: { code: 'already_deleted', message: 'meeting already deleted' } },
+        { status: 409 },
+      );
+    }
+    const deleted_at = nowIso();
+    entry.deleted_at = deleted_at;
+    return HttpResponse.json({ meeting_id: id, deleted_at, blob_removed: true });
   }),
 
   // Wave 5.1 / 5.2 — cross-meeting dashboards. The mock walks every

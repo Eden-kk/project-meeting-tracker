@@ -563,6 +563,12 @@ components:
           description: |
             Set by the auto-finalize background task when the Hermes call
             fails; status reverts to `ready` so the user can re-trigger.
+        finalized_summary:
+          type: string
+          nullable: true
+          description: |
+            Single-narrative summary produced by the chunked-summarization
+            pass during finalize; rendered as markdown by the SPA Summary tab.
 
     MeetingPattern:
       description: Mirrors schemas/meeting_pattern.schema.json

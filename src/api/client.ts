@@ -5,6 +5,7 @@ import type {
   AskHermesInput,
   AskHermesResponse,
   CreateMemoryCardInput,
+  DeleteMeetingResponse,
   EvidenceCitation,
   FinalizeMeetingResponse,
   FollowupDraftInput,
@@ -108,6 +109,11 @@ export async function finalizeMeeting(meetingId: string): Promise<FinalizeMeetin
   const res = await api.post<FinalizeMeetingResponse>(
     `/api/meetings/${meetingId}/finalize`,
   );
+  return res.data;
+}
+
+export async function deleteMeeting(meetingId: string): Promise<DeleteMeetingResponse> {
+  const res = await api.delete<DeleteMeetingResponse>(`/api/meetings/${meetingId}`);
   return res.data;
 }
 
