@@ -4,6 +4,7 @@ import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { sourceLabel } from './SourceIcon';
 import { StatusPill } from './StatusPill';
+import { DeleteMeetingDialog } from './DeleteMeetingDialog';
 
 type SortKey = 'title' | 'imported_at' | 'source_type' | 'detected_pattern' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -33,6 +34,7 @@ export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] })
   const { workspaceId } = useWorkspace();
   const [sortKey, setSortKey] = useState<SortKey>('imported_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [confirmDelete, setConfirmDelete] = useState<StoredMeetingSummary | null>(null);
 
   const sorted = [...meetings].sort((a, b) => compare(a, b, sortKey, sortDir));
 
@@ -46,6 +48,7 @@ export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] })
   }
 
   return (
+    <>
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-gray-200 text-left text-xs uppercase text-gray-500">
@@ -62,6 +65,7 @@ export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] })
               </button>
             </th>
           ))}
+          <th className="px-3 py-2" />
         </tr>
       </thead>
       <tbody>
@@ -76,9 +80,28 @@ export function MeetingTable({ meetings }: { meetings: StoredMeetingSummary[] })
             <td className="px-3 py-2 text-gray-600">{sourceLabel(m.source_type)}</td>
             <td className="px-3 py-2 text-gray-600">{m.detected_pattern ?? '—'}</td>
             <td className="px-3 py-2"><StatusPill status={m.status} /></td>
+            <td className="px-3 py-2 text-right">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(m)}
+                aria-label={`Delete ${m.title}`}
+                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              >
+                ⋮
+              </button>
+            </td>
           </tr>
         ))}
       </tbody>
     </table>
+    {confirmDelete && (
+      <DeleteMeetingDialog
+        meeting={{ id: confirmDelete.meeting_id, title: confirmDelete.title }}
+        workspaceId={workspaceId}
+        onClose={() => setConfirmDelete(null)}
+        onDeleted={() => setConfirmDelete(null)}
+      />
+    )}
+    </>
   );
 }
