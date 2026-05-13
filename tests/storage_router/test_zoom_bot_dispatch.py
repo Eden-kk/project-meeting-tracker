@@ -219,3 +219,101 @@ def test_terminate_kills_on_timeout(monkeypatch) -> None:
     zoom_bot_dispatcher.terminate("m_kill", timeout_s=0.01)
     proc.terminate.assert_called_once()
     proc.kill.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Route-shape tests (Slice 2). Use the live ASGI client + mock dispatcher.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_route_503_when_creds_missing(client, monkeypatch) -> None:
+    monkeypatch.setattr(zoom_bot_dispatcher.settings, "zoom_sdk_key", "")
+    monkeypatch.setattr(zoom_bot_dispatcher.settings, "zoom_sdk_secret", "")
+    monkeypatch.setattr(zoom_bot_dispatcher.settings, "zoom_oauth_client_id", "")
+    monkeypatch.setattr(
+        zoom_bot_dispatcher.settings, "zoom_oauth_client_secret", ""
+    )
+    resp = await client.post(
+        "/api/zoom-bot/dispatch",
+        json={
+            "workspace_id": "ws_dev",
+            "zoom_url": "https://zoom.us/j/85412345678",
+        },
+    )
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["error"]["code"] == "zoom_creds_missing"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_route_400_on_unparseable_url(client, monkeypatch) -> None:
+    _set_creds(monkeypatch)
+    resp = await client.post(
+        "/api/zoom-bot/dispatch",
+        json={"workspace_id": "ws_dev", "zoom_url": "https://example.com/foo"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "invalid_zoom_url"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_route_creates_meeting_and_calls_dispatcher(
+    client, monkeypatch
+) -> None:
+    _set_creds(monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_dispatch(meeting_id, zoom_url, *, storage_router_url, spawner=None):
+        captured["meeting_id"] = meeting_id
+        captured["zoom_url"] = zoom_url
+        captured["storage_router_url"] = storage_router_url
+        return _fake_proc()
+
+    monkeypatch.setattr(zoom_bot_dispatcher, "dispatch", fake_dispatch)
+
+    resp = await client.post(
+        "/api/zoom-bot/dispatch",
+        json={
+            "workspace_id": "ws_dev",
+            "zoom_url": "https://zoom.us/j/85412345678?pwd=abc",
+            "title": "Roadmap sync",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["zoom_meeting_number"] == "85412345678"
+    assert body["status"] == "live"
+    assert captured["meeting_id"] == body["meeting_id"]
+
+    # MeetingRow exists with source_type='zoom_bot' (through the artifact).
+    from storage_router.db import SessionLocal
+    from storage_router.models.db import ConversationArtifactRow, MeetingRow
+
+    with SessionLocal() as s:
+        m = s.get(MeetingRow, body["meeting_id"])
+        assert m is not None
+        assert m.status == "live"
+        assert m.zoom_meeting_number == "85412345678"
+        art = s.get(ConversationArtifactRow, m.artifact_id)
+        assert art.source_type == "zoom_bot"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_route_returns_bot_pool_full(client, monkeypatch) -> None:
+    _set_creds(monkeypatch)
+
+    def fake_dispatch(*a, **kw):
+        raise zoom_bot_dispatcher.BotPoolFull("bot pool full (3 active)")
+
+    monkeypatch.setattr(zoom_bot_dispatcher, "dispatch", fake_dispatch)
+
+    resp = await client.post(
+        "/api/zoom-bot/dispatch",
+        json={
+            "workspace_id": "ws_dev",
+            "zoom_url": "https://zoom.us/j/85412345678",
+        },
+    )
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "bot_pool_full"
