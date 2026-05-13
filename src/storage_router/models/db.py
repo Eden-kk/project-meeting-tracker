@@ -128,6 +128,7 @@ class MeetingRow(Base):
     # Q1: overwritten every ~60 s by the questioner loop; capped at 5 items.
     # NULL until the first tick succeeds or when no interviewee is set.
     suggested_questions: Mapped[list | None] = mapped_column(JSONB)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class MeetingSourceRow(Base):

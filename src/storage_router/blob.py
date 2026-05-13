@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Protocol
+from urllib.parse import urlparse
 
 from storage_router.ids import new_id
 
@@ -12,6 +13,7 @@ class BlobStore(Protocol):
     def put(
         self, stream: BinaryIO, *, key_hint: str, content_type: str | None
     ) -> str: ...
+    def delete(self, url: str) -> bool: ...
 
 
 def _ext_for_hint(key_hint: str) -> str:
@@ -39,9 +41,28 @@ class LocalFsBlobStore:
         path.write_bytes(data)
         return f"file://{path.resolve()}"
 
+    def delete(self, url: str) -> bool:
+        """Best-effort unlink. Returns True if the file was removed, False
+        if it was already gone, the URL didn't parse, or any IO error
+        occurred. Never raises."""
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme != "file":
+                return False
+            path = Path(parsed.path)
+            if not path.is_file():
+                return False
+            path.unlink()
+            return True
+        except OSError:
+            return False
+
 
 class S3BlobStore:
     """Stub for Phase 2."""
 
     def put(self, stream: BinaryIO, *, key_hint: str, content_type: str | None = None) -> str:
+        raise NotImplementedError("phase 2")
+
+    def delete(self, url: str) -> bool:
         raise NotImplementedError("phase 2")
