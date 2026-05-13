@@ -184,3 +184,22 @@ async def test_search_transcripts_pagination(client) -> None:
     body = r.json()
     assert body["total"] == 5
     assert len(body["items"]) == 2
+
+
+async def test_search_transcripts_excludes_deleted_meeting(client) -> None:
+    m1 = _seed_meeting("Live meeting")
+    m2 = _seed_meeting("Deleted meeting")
+    _seed_segment(m1, "seg_live", "deployment is scheduled for Friday")
+    _seed_segment(m2, "seg_gone", "deployment was last week")
+
+    await client.delete(f"/api/meetings/{m2}")
+
+    r = await client.get(
+        "/api/search/transcripts",
+        params={"q": "deployment", "workspace_id": "ws_dev"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    meeting_ids = {it["meeting_id"] for it in body["items"]}
+    assert m1 in meeting_ids
+    assert m2 not in meeting_ids
