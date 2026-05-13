@@ -234,6 +234,7 @@ def qa_workspace(body: WorkspaceQARequest, session: Session = Depends(get_sessio
         rows = (
             session.query(MeetingRow)
             .filter(MeetingRow.id.in_(meeting_ids))
+            .filter(MeetingRow.deleted_at.is_(None))
             .all()
         )
         title_by_meeting = {r.id: (r.title or "") for r in rows}

@@ -509,7 +509,7 @@ def prefix_citations_with_project(
                 "SELECT m.id, ca.workspace_id "
                 "FROM meetings m "
                 "JOIN conversation_artifacts ca ON ca.id = m.artifact_id "
-                "WHERE m.id = ANY(:ids)"
+                "WHERE m.id = ANY(:ids) AND m.deleted_at IS NULL"
             ),
             {"ids": list(meeting_ids)},
         ).all()
