@@ -55,6 +55,12 @@ export type FinalizeMeetingResponse = {
   finalized_at: string;
 };
 
+export type DeleteMeetingResponse = {
+  meeting_id: string;
+  deleted_at: string;
+  blob_removed: boolean;
+};
+
 export type AskHermesInput = {
   meeting_id: string;
   question: string;
