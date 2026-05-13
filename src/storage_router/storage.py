@@ -109,13 +109,15 @@ def get_meeting(session, meeting_id: str) -> MeetingRow | None:
 
 def soft_delete_meeting(
     session, meeting_id: str
-) -> tuple[MeetingRow, str | None] | None:
-    """Soft-delete a meeting. Returns the row + the artifact's raw_file_url
-    so the caller can unlink the blob outside the transaction.
+) -> tuple[MeetingRow, str | None, bool] | None:
+    """Soft-delete a meeting. Returns (row, raw_file_url, was_newly_deleted)
+    so the caller can unlink the blob outside the transaction and 409 on
+    a lost concurrent race.
 
     Uses SELECT ... FOR UPDATE so concurrent DELETEs serialize cleanly
     (mirrors the finalize_meeting pattern in qa_route.py). If the row
-    is already soft-deleted, returns it unchanged so the caller can 409.
+    is already soft-deleted, returns it unchanged with
+    was_newly_deleted=False.
     """
     from datetime import datetime, timezone
 
@@ -126,11 +128,12 @@ def soft_delete_meeting(
     ).scalar_one_or_none()
     if meeting is None:
         return None
-    if meeting.deleted_at is None:
+    was_newly_deleted = meeting.deleted_at is None
+    if was_newly_deleted:
         meeting.deleted_at = datetime.now(timezone.utc)
         session.flush()
     artifact = session.get(ConversationArtifactRow, meeting.artifact_id)
-    return meeting, (artifact.raw_file_url if artifact else None)
+    return meeting, (artifact.raw_file_url if artifact else None), was_newly_deleted
 
 
 def list_meetings(

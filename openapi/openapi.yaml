@@ -118,6 +118,40 @@ paths:
         '404':
           description: Not found
 
+    delete:
+      summary: Soft-delete a meeting
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Meeting soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meeting_id, deleted_at, blob_removed]
+                properties:
+                  meeting_id:   { type: string }
+                  deleted_at:   { type: string, format: date-time }
+                  blob_removed: { type: boolean }
+        '404':
+          description: Meeting not found
+        '409':
+          description: Meeting already deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:    { type: string, example: already_deleted }
+                      message: { type: string }
+
   /api/meetings/{id}/transcript:
     get:
       summary: Get the normalized transcript for a meeting

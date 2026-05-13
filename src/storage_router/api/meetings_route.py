@@ -1,7 +1,7 @@
 """GET /api/meetings list, GET /api/meetings/{id}, GET /api/meetings/{id}/transcript."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -99,6 +99,29 @@ def get_transcript(meeting_id: str, session: Session = Depends(get_session)):
         ]
         transcript = transcript.model_copy(update={"segments": patched_segments})
     return transcript.model_dump(mode="json")
+
+
+@router.delete("/api/meetings/{meeting_id}")
+def delete_meeting(request: Request, meeting_id: str, session: Session = Depends(get_session)):
+    result = storage.soft_delete_meeting(session, meeting_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="meeting not found")
+    meeting, raw_file_url, was_newly_deleted = result
+    if not was_newly_deleted:
+        return JSONResponse(
+            status_code=409,
+            content={"error": {"code": "already_deleted", "message": "meeting already deleted"}},
+        )
+    session.commit()
+    blob_removed = False
+    if raw_file_url:
+        store = request.app.state.blob_store
+        blob_removed = store.delete(raw_file_url)
+    return {
+        "meeting_id": meeting.id,
+        "deleted_at": meeting.deleted_at.isoformat(),
+        "blob_removed": blob_removed,
+    }
 
 
 @router.patch("/api/meetings/{meeting_id}/speakers")
