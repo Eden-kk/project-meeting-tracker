@@ -217,3 +217,23 @@ async def test_search_cards_no_match_returns_empty(client) -> None:
     )
     assert r.status_code == 200
     assert r.json() == {"items": [], "total": 0}
+
+
+async def test_search_cards_excludes_deleted_meeting(client) -> None:
+    m1 = _seed_meeting("Live meeting")
+    m2 = _seed_meeting("Deleted meeting")
+    c1 = _seed_card(m1, "Rollout plan", "rollout schedule for Q2")
+    _seed_card(m2, "Rollout plan", "rollout blocked by infra")
+
+    await client.delete(f"/api/meetings/{m2}")
+
+    r = await client.get(
+        "/api/search/cards",
+        params={"q": "rollout", "workspace_id": "ws_dev"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    card_ids = {it["memory_card_id"] for it in body["items"]}
+    meeting_ids = {it["meeting_id"] for it in body["items"]}
+    assert c1 in card_ids
+    assert m2 not in meeting_ids
