@@ -1,0 +1,122 @@
+<!doctype html>
+<!--
+  zoom-host.html — minimal host page loaded by Puppeteer.
+
+  The Zoom Web Meeting SDK refuses to run on file:// in some versions, but
+  Chromium's --allow-file-access-from-files / data: URL workarounds plus
+  the local SDK bundle keep this working. If a future SDK release requires
+  https://, switch this file to be served by a tiny local HTTP server in
+  bot.py (loopback only).
+
+  This page exposes window.joinMeeting(url, displayName, storageRouterUrl)
+  which:
+    1. Fetches a fresh Meeting-SDK signature from the storage-router.
+    2. Calls ZoomMtg.join({signature, sdkKey, meetingNumber, ...}).
+    3. Registers an onMeetingEnd listener that resolves with exit-code 0.
+    4. Rejects on ZoomMtg.join failure (a non-zero exit code).
+
+  The SDK script tags are pinned to a recent version. Bumping the
+  version is a deliberate operator action; do it alongside a manual
+  smoke test on a real Zoom meeting.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Hermes Zoom bot host</title>
+    <link
+      type="text/css"
+      rel="stylesheet"
+      href="https://source.zoom.us/3.8.0/css/bootstrap.css"
+    />
+    <link
+      type="text/css"
+      rel="stylesheet"
+      href="https://source.zoom.us/3.8.0/css/react-select.css"
+    />
+  </head>
+  <body>
+    <div id="zmmtg-root"></div>
+    <div id="aria-notify-area"></div>
+    <script src="https://source.zoom.us/3.8.0/lib/vendor/react.min.js"></script>
+    <script src="https://source.zoom.us/3.8.0/lib/vendor/react-dom.min.js"></script>
+    <script src="https://source.zoom.us/3.8.0/lib/vendor/redux.min.js"></script>
+    <script src="https://source.zoom.us/3.8.0/lib/vendor/redux-thunk.min.js"></script>
+    <script src="https://source.zoom.us/3.8.0/lib/vendor/lodash.min.js"></script>
+    <script src="https://source.zoom.us/zoom-meeting-3.8.0.min.js"></script>
+    <script>
+      function parseMeetingNumber(url) {
+        const m = /zoom\.us\/j\/(\d+)/i.exec(url);
+        return m ? m[1] : null;
+      }
+      function parsePasscode(url) {
+        const m = /[?&]pwd=([^&]+)/i.exec(url);
+        return m ? decodeURIComponent(m[1]) : '';
+      }
+
+      window.joinMeeting = function joinMeeting(
+        zoomUrl,
+        displayName,
+        storageRouterUrl,
+      ) {
+        return new Promise(async (resolve, reject) => {
+          const meetingNumber = parseMeetingNumber(zoomUrl);
+          if (!meetingNumber) {
+            reject(new Error('Could not parse meeting number from ' + zoomUrl));
+            return;
+          }
+          const passcode = parsePasscode(zoomUrl);
+
+          let jwtResp;
+          try {
+            const r = await fetch(
+              storageRouterUrl + '/api/zoom-bot/sdk-jwt',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  meeting_number: meetingNumber,
+                  role: 0,
+                }),
+              },
+            );
+            if (!r.ok) {
+              reject(new Error('jwt fetch failed: ' + r.status));
+              return;
+            }
+            jwtResp = await r.json();
+          } catch (err) {
+            reject(err);
+            return;
+          }
+
+          ZoomMtg.preLoadWasm();
+          ZoomMtg.prepareWebSDK();
+          ZoomMtg.init({
+            leaveUrl: 'about:blank',
+            success: () => {
+              ZoomMtg.join({
+                signature: jwtResp.signature,
+                sdkKey: jwtResp.sdk_key,
+                meetingNumber: meetingNumber,
+                passWord: passcode,
+                userName: displayName,
+                success: () => {
+                  // Register the end-of-meeting hook AFTER join succeeds.
+                  ZoomMtg.inMeetingServiceListener('onMeetingEnd', () => {
+                    resolve(0);
+                  });
+                },
+                error: (err) => {
+                  reject(err);
+                },
+              });
+            },
+            error: (err) => {
+              reject(err);
+            },
+          });
+        });
+      };
+    </script>
+  </body>
+</html>
