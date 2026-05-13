@@ -129,6 +129,9 @@ class MeetingRow(Base):
     # NULL until the first tick succeeds or when no interviewee is set.
     suggested_questions: Mapped[list | None] = mapped_column(JSONB)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Wave 9 (zoom-bot): the Zoom meeting number (decimal string) extracted
+    # from the join URL. NULL for non-zoom_bot meetings.
+    zoom_meeting_number: Mapped[str | None] = mapped_column(Text)
 
 
 class MeetingSourceRow(Base):
