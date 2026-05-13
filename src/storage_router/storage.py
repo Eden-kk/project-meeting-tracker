@@ -100,7 +100,37 @@ def persist_transcript_segments(
 
 
 def get_meeting(session, meeting_id: str) -> MeetingRow | None:
-    return session.get(MeetingRow, meeting_id)
+    return session.execute(
+        select(MeetingRow)
+        .where(MeetingRow.id == meeting_id)
+        .where(MeetingRow.deleted_at.is_(None))
+    ).scalar_one_or_none()
+
+
+def soft_delete_meeting(
+    session, meeting_id: str
+) -> tuple[MeetingRow, str | None] | None:
+    """Soft-delete a meeting. Returns the row + the artifact's raw_file_url
+    so the caller can unlink the blob outside the transaction.
+
+    Uses SELECT ... FOR UPDATE so concurrent DELETEs serialize cleanly
+    (mirrors the finalize_meeting pattern in qa_route.py). If the row
+    is already soft-deleted, returns it unchanged so the caller can 409.
+    """
+    from datetime import datetime, timezone
+
+    meeting = session.execute(
+        select(MeetingRow)
+        .where(MeetingRow.id == meeting_id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if meeting is None:
+        return None
+    if meeting.deleted_at is None:
+        meeting.deleted_at = datetime.now(timezone.utc)
+        session.flush()
+    artifact = session.get(ConversationArtifactRow, meeting.artifact_id)
+    return meeting, (artifact.raw_file_url if artifact else None)
 
 
 def list_meetings(
@@ -111,6 +141,7 @@ def list_meetings(
         select(MeetingRow)
         .join(ConversationArtifactRow, MeetingRow.artifact_id == ConversationArtifactRow.id)
         .where(ConversationArtifactRow.workspace_id == workspace_id)
+        .where(MeetingRow.deleted_at.is_(None))
     )
     total = session.execute(
         select(func.count()).select_from(base.subquery())
@@ -176,7 +207,7 @@ def create_memory_card(
 
     Raises LookupError if the meeting does not exist (route maps to 404).
     """
-    if session.get(MeetingRow, meeting_id) is None:
+    if get_meeting(session, meeting_id) is None:
         raise LookupError(f"meeting {meeting_id} not found")
     row = MemoryCardRow(
         id=new_id("mem"),
@@ -212,7 +243,7 @@ def list_meeting_cards(
 
     Raises LookupError if the meeting does not exist.
     """
-    if session.get(MeetingRow, meeting_id) is None:
+    if get_meeting(session, meeting_id) is None:
         raise LookupError(f"meeting {meeting_id} not found")
     base = select(MemoryCardRow).where(MemoryCardRow.meeting_id == meeting_id)
     if type is not None:
@@ -391,6 +422,7 @@ def list_action_items(
             MeetingRow.artifact_id == ConversationArtifactRow.id,
         )
         .where(ConversationArtifactRow.workspace_id == workspace_id)
+        .where(MeetingRow.deleted_at.is_(None))
         .where(MemoryCardRow.type == type)
         .where(MemoryCardRow.hidden_at.is_(None))
     )
@@ -465,7 +497,7 @@ def search_segments_fts(
             """
             SELECT COUNT(*)
               FROM speaker_segments s
-              JOIN meetings m ON m.id = s.meeting_id
+              JOIN meetings m ON m.id = s.meeting_id AND m.deleted_at IS NULL
               JOIN conversation_artifacts a ON a.id = m.artifact_id
              WHERE a.workspace_id = :ws
             """
@@ -485,7 +517,7 @@ def search_segments_fts(
                    0.0               AS rank,
                    ''                AS snippet
               FROM speaker_segments s
-              JOIN meetings m ON m.id = s.meeting_id
+              JOIN meetings m ON m.id = s.meeting_id AND m.deleted_at IS NULL
               JOIN conversation_artifacts a ON a.id = m.artifact_id
              WHERE a.workspace_id = :ws
              ORDER BY m.created_at DESC NULLS LAST,
@@ -503,7 +535,7 @@ def search_segments_fts(
         """
         SELECT COUNT(*)
           FROM speaker_segments s
-          JOIN meetings m ON m.id = s.meeting_id
+          JOIN meetings m ON m.id = s.meeting_id AND m.deleted_at IS NULL
           JOIN conversation_artifacts a ON a.id = m.artifact_id
          WHERE a.workspace_id = :ws
            AND s.search_tsv @@ websearch_to_tsquery('english', :q)
@@ -527,7 +559,7 @@ def search_segments_fts(
                  'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
                ) AS snippet
           FROM speaker_segments s
-          JOIN meetings m ON m.id = s.meeting_id
+          JOIN meetings m ON m.id = s.meeting_id AND m.deleted_at IS NULL
           JOIN conversation_artifacts a ON a.id = m.artifact_id
          WHERE a.workspace_id = :ws
            AND s.search_tsv @@ websearch_to_tsquery('english', :q)
@@ -576,7 +608,7 @@ def search_cards_fts(
             f"""
             SELECT COUNT(*)
               FROM memory_cards c
-              JOIN meetings m ON m.id = c.meeting_id
+              JOIN meetings m ON m.id = c.meeting_id AND m.deleted_at IS NULL
               JOIN conversation_artifacts a ON a.id = m.artifact_id
              WHERE a.workspace_id = :ws
                AND c.hidden_at IS NULL
@@ -599,7 +631,7 @@ def search_cards_fts(
                    0.0               AS rank,
                    ''                AS snippet
               FROM memory_cards c
-              JOIN meetings m ON m.id = c.meeting_id
+              JOIN meetings m ON m.id = c.meeting_id AND m.deleted_at IS NULL
               JOIN conversation_artifacts a ON a.id = m.artifact_id
              WHERE a.workspace_id = :ws
                AND c.hidden_at IS NULL
@@ -620,7 +652,7 @@ def search_cards_fts(
         f"""
         SELECT COUNT(*)
           FROM memory_cards c
-          JOIN meetings m ON m.id = c.meeting_id
+          JOIN meetings m ON m.id = c.meeting_id AND m.deleted_at IS NULL
           JOIN conversation_artifacts a ON a.id = m.artifact_id
          WHERE a.workspace_id = :ws
            AND c.hidden_at IS NULL
@@ -649,7 +681,7 @@ def search_cards_fts(
                  'StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MaxWords=20,MinWords=5'
                ) AS snippet
           FROM memory_cards c
-          JOIN meetings m ON m.id = c.meeting_id
+          JOIN meetings m ON m.id = c.meeting_id AND m.deleted_at IS NULL
           JOIN conversation_artifacts a ON a.id = m.artifact_id
          WHERE a.workspace_id = :ws
            AND c.hidden_at IS NULL
