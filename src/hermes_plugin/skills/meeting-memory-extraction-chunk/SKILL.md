@@ -51,7 +51,11 @@ your topic sentence.
      segment
 4. Batch multiple `create_draft_memory_card` calls in one assistant
    turn when possible.
-5. End with a single line: `"Chunk {chunk_index}/{chunk_count}: <one-sentence topic>"`.
+5. End with a single line: a one-sentence topic summary of THIS chunk
+   in plain prose. Do NOT prefix the line with `"Chunk N/M:"` or any
+   other index marker; the downstream `meeting-summary-overall` skill
+   consumes these one-liners as a flat ordered list of beats and the
+   prefix only adds noise.
 
 ## Evidence discipline
 
@@ -59,8 +63,8 @@ your topic sentence.
   Do not write it.
 - Do NOT reference earlier or later chunks. Each chunk stands alone.
 - If this chunk has no extractable findings (small talk, silence,
-  off-topic), end with `"Chunk {chunk_index}/{chunk_count}: no findings"`
-  and create no cards.
+  off-topic), end with the literal line `no findings` and create no
+  cards.
 
 ## Output contract
 
