@@ -299,6 +299,54 @@ async def test_dispatch_route_creates_meeting_and_calls_dispatcher(
         assert art.source_type == "zoom_bot"
 
 
+def test_require_host_prereqs_raises_when_missing(monkeypatch) -> None:
+    """When pactl/ffmpeg/node aren't on PATH, ``dispatch()`` must surface clearly."""
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda name: None)
+    with pytest.raises(zoom_bot_dispatcher.BotPrereqMissing) as exc:
+        zoom_bot_dispatcher._require_host_prereqs()
+    assert "pactl" in str(exc.value)
+    assert "ffmpeg" in str(exc.value)
+    assert "node" in str(exc.value)
+
+
+def test_require_host_prereqs_passes_when_all_present(monkeypatch) -> None:
+    import shutil as _shutil
+
+    monkeypatch.setattr(_shutil, "which", lambda name: "/usr/bin/" + name)
+    zoom_bot_dispatcher._require_host_prereqs()  # must not raise
+
+
+def test_dispatch_skips_prereq_check_when_spawner_injected(monkeypatch) -> None:
+    """Tests that pass a mock spawner shouldn't require pactl/ffmpeg/node on PATH."""
+    import shutil as _shutil
+
+    _set_creds(monkeypatch)
+    monkeypatch.setattr(_shutil, "which", lambda name: None)
+    # No raise — the injected spawner bypasses _require_host_prereqs().
+    zoom_bot_dispatcher.dispatch(
+        "m_inj",
+        "https://zoom.us/j/1",
+        storage_router_url="http://r",
+        spawner=lambda cmd, env: _fake_proc(),
+    )
+
+
+def test_dispatch_calls_prereq_check_when_using_default_spawner(monkeypatch) -> None:
+    """When no spawner is injected, missing prereqs become BotPrereqMissing."""
+    import shutil as _shutil
+
+    _set_creds(monkeypatch)
+    monkeypatch.setattr(_shutil, "which", lambda name: None)
+    with pytest.raises(zoom_bot_dispatcher.BotPrereqMissing):
+        zoom_bot_dispatcher.dispatch(
+            "m_no_prereq",
+            "https://zoom.us/j/1",
+            storage_router_url="http://r",
+        )
+
+
 @pytest.mark.asyncio
 async def test_dispatch_route_returns_bot_pool_full(client, monkeypatch) -> None:
     _set_creds(monkeypatch)

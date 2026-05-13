@@ -192,6 +192,16 @@ async def dispatch_zoom_bot(
                 }
             },
         )
+    except zoom_bot_dispatcher.BotPrereqMissing as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "bot_prereqs_missing",
+                    "message": str(exc),
+                }
+            },
+        )
 
     return JSONResponse(
         status_code=201,

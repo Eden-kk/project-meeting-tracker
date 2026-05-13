@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 from typing import Callable, Optional
 
@@ -24,9 +25,20 @@ logger = logging.getLogger(__name__)
 # meeting_id -> Popen handle. Module-global; mirrors live_extraction._TASKS.
 _PROCESSES: dict[str, subprocess.Popen] = {}
 
+# Bot host-side prereqs. Checked lazily at first dispatch — never at module
+# import (so the SPA loads on hosts that don't have these installed yet).
+# `chromium` is optional in practice: Puppeteer downloads its own Chrome
+# unless we ship one. Keep the check soft for chromium and hard for the
+# rest.
+_REQUIRED_TOOLS = ("pactl", "ffmpeg", "node")
+
 
 class BotPoolFull(RuntimeError):
     """Raised when ``dispatch()`` would exceed ``zoom_bot_pool_size``."""
+
+
+class BotPrereqMissing(RuntimeError):
+    """Raised when pactl / ffmpeg / node is not on PATH at dispatch time."""
 
 
 def _require_zoom_creds() -> None:
@@ -61,6 +73,17 @@ def _reap_dead() -> None:
         _PROCESSES.pop(mid, None)
 
 
+def _require_host_prereqs() -> None:
+    """Raise ``BotPrereqMissing`` when any required tool is absent from PATH."""
+    missing = [name for name in _REQUIRED_TOOLS if shutil.which(name) is None]
+    if missing:
+        raise BotPrereqMissing(
+            "Bot host is missing required tools on PATH: "
+            f"{', '.join(missing)}. Install pulseaudio + ffmpeg + nodejs "
+            "on the pod before dispatching a bot."
+        )
+
+
 def dispatch(
     meeting_id: str,
     zoom_url: str,
@@ -90,6 +113,12 @@ def dispatch(
             f"bot pool full ({settings.zoom_bot_pool_size} active); "
             "wait for a meeting to end or raise ZOOM_BOT_POOL_SIZE."
         )
+
+    # Pre-flight: only when we're about to actually fork. Tests that pass
+    # a mock spawner skip this so they don't need pactl/ffmpeg/node on the
+    # CI box.
+    if spawner is None:
+        _require_host_prereqs()
 
     cmd = ["python", str(settings.zoom_bot_dir / "bot.py")]
     env = {
@@ -149,6 +178,8 @@ def _reset_for_tests() -> None:
 
 __all__ = [
     "BotPoolFull",
+    "BotPrereqMissing",
+    "_require_host_prereqs",
     "_require_zoom_creds",
     "_reset_for_tests",
     "active_count",
