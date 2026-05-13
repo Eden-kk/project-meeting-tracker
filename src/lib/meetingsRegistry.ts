@@ -34,6 +34,11 @@ export type StoredMeetingSummary = {
   evidence_quality: EvidenceQuality;
   status: MeetingStatus;
   last_seen_at: string; // ISO, updated on every API refresh
+  // Workspace this meeting belongs to. Optional for backward-compat with
+  // entries written before the workspace-switcher slice; new entries always
+  // populate it. `useMeetings` filters by current workspaceId and treats
+  // missing values as legacy entries that should be pruned on next refresh.
+  workspace_id?: string;
 };
 
 export const STORAGE_KEY = 'tracker:meetings:v1';

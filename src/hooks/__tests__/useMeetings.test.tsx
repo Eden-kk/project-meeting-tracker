@@ -59,11 +59,13 @@ function wrap(): { wrapper: ({ children }: { children: ReactNode }) => JSX.Eleme
 describe('mergeServerAndRegistry', () => {
   const recentIso = () => new Date(Date.now() - 30_000).toISOString();
   const ancientIso = '2025-01-01T00:00:00.000Z';
+  const WS = 'ws_dev';
 
   it('server fields win on overlap; registry adds source_type/imported_at', () => {
     const { merged } = mergeServerAndRegistry(
       [meetingFixture({ title: 'Server', status: 'ready' })],
-      [summaryFixture({ title: 'Registry', status: 'processing', source_type: 'voice_file' })],
+      [summaryFixture({ title: 'Registry', status: 'processing', source_type: 'voice_file', workspace_id: WS })],
+      WS,
     );
     expect(merged).toHaveLength(1);
     expect(merged[0].title).toBe('Server');
@@ -72,22 +74,46 @@ describe('mergeServerAndRegistry', () => {
     expect(merged[0].imported_at).toBe(ancientIso);
   });
 
-  it('fresh registry-only entries (within grace window) are appended after the server run', () => {
+  it('fresh same-workspace registry-only entries (within grace window) are appended', () => {
     const { merged, staleIds } = mergeServerAndRegistry(
       [meetingFixture({ meeting_id: 'm_server' })],
-      [summaryFixture({ meeting_id: 'm_local', last_seen_at: recentIso() })],
+      [summaryFixture({ meeting_id: 'm_local', last_seen_at: recentIso(), workspace_id: WS })],
+      WS,
     );
     expect(merged.map((m) => m.meeting_id)).toEqual(['m_server', 'm_local']);
     expect(staleIds).toEqual([]);
   });
 
-  it('stale registry-only entries (past grace window) are pruned and returned in staleIds', () => {
+  it('stale same-workspace entries (past grace window) are pruned and returned in staleIds', () => {
     const { merged, staleIds } = mergeServerAndRegistry(
       [meetingFixture({ meeting_id: 'm_server' })],
-      [summaryFixture({ meeting_id: 'm_local', last_seen_at: ancientIso })],
+      [summaryFixture({ meeting_id: 'm_local', last_seen_at: ancientIso, workspace_id: WS })],
+      WS,
     );
     expect(merged.map((m) => m.meeting_id)).toEqual(['m_server']);
     expect(staleIds).toEqual(['m_local']);
+  });
+
+  it('different-workspace entries are HIDDEN but NOT pruned (they belong to the other workspace)', () => {
+    const { merged, staleIds } = mergeServerAndRegistry(
+      [meetingFixture({ meeting_id: 'm_server' })],
+      [summaryFixture({ meeting_id: 'm_other', last_seen_at: recentIso(), workspace_id: 'ws_other' })],
+      WS,
+    );
+    expect(merged.map((m) => m.meeting_id)).toEqual(['m_server']);
+    expect(staleIds).toEqual([]);
+  });
+
+  it('legacy entries with no workspace_id are pruned (they predate the slice)', () => {
+    const legacy = summaryFixture({ meeting_id: 'm_legacy', last_seen_at: recentIso() });
+    delete (legacy as Partial<typeof legacy>).workspace_id;
+    const { merged, staleIds } = mergeServerAndRegistry(
+      [meetingFixture({ meeting_id: 'm_server' })],
+      [legacy],
+      WS,
+    );
+    expect(merged.map((m) => m.meeting_id)).toEqual(['m_server']);
+    expect(staleIds).toEqual(['m_legacy']);
   });
 
   it('preserves server ordering', () => {
@@ -98,6 +124,7 @@ describe('mergeServerAndRegistry', () => {
         meetingFixture({ meeting_id: 'm_first' }),
       ],
       [],
+      WS,
     );
     expect(merged.map((m) => m.meeting_id)).toEqual(['m_third', 'm_second', 'm_first']);
   });
@@ -132,13 +159,15 @@ describe('useMeetings', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns registry contents on network failure (offline fallback)', async () => {
+  it('returns registry contents on network failure (offline fallback, scoped to workspace)', async () => {
     vi.spyOn(client, 'listMeetings').mockRejectedValue(new Error('network down'));
     act(() => {
-      registry.upsert(summaryFixture({ meeting_id: 'm_local', title: 'Local only' }));
+      registry.upsert(summaryFixture({ meeting_id: 'm_local', title: 'Local only', workspace_id: 'ws_dev' }));
+      registry.upsert(summaryFixture({ meeting_id: 'm_other', title: 'Other ws', workspace_id: 'ws_other' }));
     });
     const { result } = renderHook(() => useMeetings(), wrap());
     await waitFor(() => expect(result.current.isOffline).toBe(true));
+    // Only the ws_dev entry shows; the ws_other one is hidden.
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_local']);
   });
 
@@ -150,13 +179,38 @@ describe('useMeetings', () => {
     const recent = new Date(Date.now() - 30_000).toISOString();
     act(() => {
       registry.upsert(
-        summaryFixture({ meeting_id: 'm_local', title: 'Local only', last_seen_at: recent }),
+        summaryFixture({ meeting_id: 'm_local', title: 'Local only', last_seen_at: recent, workspace_id: 'ws_dev' }),
       );
     });
     const { result } = renderHook(() => useMeetings(), wrap());
     await waitFor(() => expect(result.current.meetings.length).toBe(2));
     expect(result.current.isOffline).toBe(false);
     expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_server', 'm_local']);
+  });
+
+  it('does NOT show or prune entries from a different workspace (workspace isolation)', async () => {
+    vi.spyOn(client, 'listMeetings').mockResolvedValue({
+      items: [meetingFixture({ meeting_id: 'm_server', title: 'Server' })],
+      total: 1,
+    });
+    act(() => {
+      registry.upsert(
+        summaryFixture({
+          meeting_id: 'm_other_ws',
+          title: 'Belongs to ws_other',
+          last_seen_at: new Date(Date.now() - 30_000).toISOString(),
+          workspace_id: 'ws_other',
+        }),
+      );
+    });
+    const { result } = renderHook(() => useMeetings(), wrap());
+    await waitFor(() =>
+      expect(result.current.meetings.map((m) => m.meeting_id)).toContain('m_server'),
+    );
+    expect(result.current.meetings.map((m) => m.meeting_id)).toEqual(['m_server']);
+    // The ws_other entry is preserved in localStorage so it shows up when
+    // the user switches to that workspace.
+    expect(registry.get('m_other_ws')).not.toBeNull();
   });
 
   it('prunes stale registry entries (past grace window) from localStorage after a successful fetch', async () => {
@@ -171,6 +225,7 @@ describe('useMeetings', () => {
           meeting_id: 'm_stale',
           title: 'Was deleted server-side',
           last_seen_at: '2025-01-01T00:00:00.000Z',
+          workspace_id: 'ws_dev',
         }),
       );
     });

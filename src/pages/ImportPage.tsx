@@ -82,6 +82,7 @@ export default function ImportPage() {
         detected_pattern: null,
         evidence_quality: 'unknown',
         status: 'processing',
+        workspace_id: workspaceId,
       });
       navigate(`/ws/${workspaceId}/meetings/${data.meeting_id}/processing`);
     },

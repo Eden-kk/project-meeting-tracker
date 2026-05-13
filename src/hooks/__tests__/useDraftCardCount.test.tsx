@@ -18,6 +18,7 @@ function summary(id: string): registry.StoredMeetingSummary {
     evidence_quality: 'medium',
     status: 'ready',
     last_seen_at: '2025-01-15T10:00:00.000Z',
+    workspace_id: 'ws_dev',
   };
 }
 
