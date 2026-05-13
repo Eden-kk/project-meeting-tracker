@@ -287,3 +287,67 @@ def test_supersede_card_rejects_same_ids(storage_client):
     with pytest.raises(ToolError) as exc:
         TOOL_REGISTRY["supersede_card"]({"loser_id": "mc_1", "winner_id": "mc_1"}, client)
     assert exc.value.status_code == 409
+
+
+# ---- Wave 4.3+ workspace search tools ----------------------------------
+
+
+def test_search_workspace_cards_accepts_no_q(storage_client):
+    """Fix for workspace-qa general-progress path: type-only call without
+    `q` must validate at the schema layer and forward without `q=` param."""
+    seen: list[httpx.Request] = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, json={"items": [], "total": 0})
+
+    client = storage_client(handler)
+    out = TOOL_REGISTRY["search_workspace_cards"](
+        {"workspace_id": "ws_dev", "type": "action_item"}, client
+    )
+    assert out == {"items": [], "total": 0}
+    params = dict(seen[0].url.params)
+    assert params.get("workspace_id") == "ws_dev"
+    assert params.get("type") == "action_item"
+    assert "q" not in params
+
+
+def test_search_workspace_cards_with_q_still_sends_q(storage_client):
+    """Regression guard: when q is provided, it is forwarded as before."""
+    seen: list[httpx.Request] = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, json={"items": [], "total": 0})
+
+    client = storage_client(handler)
+    TOOL_REGISTRY["search_workspace_cards"](
+        {"workspace_id": "ws_dev", "q": "budget"}, client
+    )
+    params = dict(seen[0].url.params)
+    assert params.get("q") == "budget"
+
+
+def test_search_workspace_transcripts_accepts_no_q(storage_client):
+    seen: list[httpx.Request] = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, json={"items": [], "total": 0})
+
+    client = storage_client(handler)
+    out = TOOL_REGISTRY["search_workspace_transcripts"](
+        {"workspace_id": "ws_dev"}, client
+    )
+    assert out == {"items": [], "total": 0}
+    params = dict(seen[0].url.params)
+    assert params.get("workspace_id") == "ws_dev"
+    assert "q" not in params
+
+
+def test_search_workspace_cards_rejects_missing_workspace_id(storage_client):
+    """workspace_id is still required even when q is optional."""
+    client = storage_client(lambda req: httpx.Response(500))
+    with pytest.raises(ToolError) as exc:
+        TOOL_REGISTRY["search_workspace_cards"]({"type": "action_item"}, client)
+    assert exc.value.status_code == 422

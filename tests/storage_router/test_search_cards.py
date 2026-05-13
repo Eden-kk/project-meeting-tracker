@@ -126,12 +126,86 @@ async def test_search_cards_workspace_scoped(client) -> None:
     assert body["items"][0]["meeting_id"] == m1
 
 
-async def test_search_cards_empty_q_422(client) -> None:
+async def test_search_cards_no_q_returns_recent_by_type(client) -> None:
+    """Workspace-qa's general-progress path: type filter, no q → returns
+    highest-confidence / most-recent cards of that type."""
+    m = _seed_meeting("Roadmap")
+    _seed_card(m, "decide on theme", "x", type="decision")
+    aid = _seed_card(m, "ship the SDK", "owner: Alice", type="action_item")
+
     r = await client.get(
         "/api/search/cards",
-        params={"q": "", "workspace_id": "ws_dev"},
+        params={"workspace_id": "ws_dev", "type": "action_item"},
     )
-    assert r.status_code == 422
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 1
+    hit = body["items"][0]
+    assert hit["memory_card_id"] == aid
+    assert hit["type"] == "action_item"
+    assert hit["rank"] == 0.0
+    assert hit["snippet"] == ""
+
+
+async def test_search_cards_no_q_no_type_returns_all_recent(client) -> None:
+    """No q AND no type → top cards across all types, by confidence DESC."""
+    m = _seed_meeting()
+    _seed_card(m, "decision one", "x", type="decision")
+    _seed_card(m, "action one", "y", type="action_item")
+    _seed_card(m, "pain one", "z", type="pain_point")
+
+    r = await client.get(
+        "/api/search/cards",
+        params={"workspace_id": "ws_dev"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    types = {it["type"] for it in body["items"]}
+    assert {"decision", "action_item", "pain_point"}.issubset(types)
+
+
+async def test_search_cards_no_q_excludes_hidden(client) -> None:
+    """No-q path must still honor hidden_at IS NULL."""
+    m = _seed_meeting()
+    _seed_card(m, "Visible action", "v", type="action_item")
+    _seed_card(m, "Hidden action", "h", type="action_item", hidden=True)
+
+    r = await client.get(
+        "/api/search/cards",
+        params={"workspace_id": "ws_dev", "type": "action_item"},
+    )
+    assert r.status_code == 200
+    titles = {it["title"] for it in r.json()["items"]}
+    assert "Visible action" in titles
+    assert "Hidden action" not in titles
+
+
+async def test_search_cards_no_q_workspace_scoped(client) -> None:
+    """No-q path must respect workspace_id."""
+    with SessionLocal() as s:
+        s.execute(
+            sql_text(
+                "INSERT INTO workspaces (id, name) VALUES ('ws_other','Other') "
+                "ON CONFLICT (id) DO NOTHING"
+            )
+        )
+        s.execute(
+            sql_text(
+                "INSERT INTO users (id, workspace_id, email, display_name) "
+                "VALUES ('u_other','ws_other','o@x.test','O') ON CONFLICT (id) DO NOTHING"
+            )
+        )
+        s.commit()
+    m_other = _seed_meeting("Other", workspace_id="ws_other", created_by="u_other")
+    _seed_card(m_other, "Other action", "leaked?", type="action_item")
+
+    r = await client.get(
+        "/api/search/cards",
+        params={"workspace_id": "ws_dev", "type": "action_item"},
+    )
+    assert r.status_code == 200
+    titles = {it["title"] for it in r.json()["items"]}
+    assert "Other action" not in titles
 
 
 async def test_search_cards_no_match_returns_empty(client) -> None:

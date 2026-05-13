@@ -78,31 +78,42 @@ class StorageRouterClient:
     def search_workspace_transcripts(
         self,
         workspace_id: str,
-        q: str,
+        q: Optional[str] = None,
         *,
         limit: int = 10,
     ) -> dict:
-        """Wave 4.3: cross-meeting transcript FTS, scoped to a workspace."""
-        return self._request(
-            "GET",
-            "/api/search/transcripts",
-            params={"q": q, "workspace_id": workspace_id, "limit": limit},
-        )
+        """Wave 4.3: cross-meeting transcript FTS, scoped to a workspace.
+
+        When ``q`` is None/empty, the route returns the most recent
+        segments in the workspace (no FTS predicate).
+        """
+        params: dict[str, str | int] = {
+            "workspace_id": workspace_id,
+            "limit": limit,
+        }
+        if q:
+            params["q"] = q
+        return self._request("GET", "/api/search/transcripts", params=params)
 
     def search_workspace_cards(
         self,
         workspace_id: str,
-        q: str,
+        q: Optional[str] = None,
         *,
         type: Optional[str] = None,
         limit: int = 10,
     ) -> dict:
-        """Wave 4.3: cross-meeting card FTS, scoped to a workspace."""
+        """Wave 4.3: cross-meeting card FTS, scoped to a workspace.
+
+        When ``q`` is None/empty, the route returns the highest-confidence
+        / most recent cards matching the remaining filters.
+        """
         params: dict[str, str | int] = {
-            "q": q,
             "workspace_id": workspace_id,
             "limit": limit,
         }
+        if q:
+            params["q"] = q
         if type is not None:
             params["type"] = type
         return self._request("GET", "/api/search/cards", params=params)

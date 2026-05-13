@@ -372,11 +372,13 @@ paths:
       description: |
         Postgres FTS over `speaker_segments.text` (English config). Hits link
         back to the originating meeting + segment. Scoped to a workspace.
+        When `q` is omitted, returns the most recent segments in the
+        workspace (no FTS ranking; rank=0, snippet empty).
       parameters:
         - in: query
           name: q
-          required: true
-          schema: { type: string, minLength: 1, maxLength: 500 }
+          required: false
+          schema: { type: string, maxLength: 500 }
         - in: query
           name: workspace_id
           required: true
@@ -405,12 +407,16 @@ paths:
       description: |
         Postgres FTS over `memory_cards.title || ' ' || content` (English
         config). Honors `hidden_at IS NULL` (the agent's soft-delete flag).
-        Optional `type` filter narrows to a single card type.
+        Optional `type` filter narrows to a single card type. When `q` is
+        omitted, returns the highest-confidence / most recent cards
+        matching the remaining filters (workspace, optional type) — used
+        by the `workspace-qa` skill for general project-progress
+        questions.
       parameters:
         - in: query
           name: q
-          required: true
-          schema: { type: string, minLength: 1, maxLength: 500 }
+          required: false
+          schema: { type: string, maxLength: 500 }
         - in: query
           name: workspace_id
           required: true

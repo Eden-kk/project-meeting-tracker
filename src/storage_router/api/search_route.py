@@ -21,8 +21,8 @@ router = APIRouter()
 
 @router.get("/api/search/transcripts")
 def search_transcripts(
-    q: str = Query(..., min_length=1, max_length=500),
     workspace_id: str = Query(..., min_length=1),
+    q: str | None = Query(None, max_length=500),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -53,8 +53,8 @@ def search_transcripts(
 
 @router.get("/api/search/cards")
 def search_cards(
-    q: str = Query(..., min_length=1, max_length=500),
     workspace_id: str = Query(..., min_length=1),
+    q: str | None = Query(None, max_length=500),
     type: MemoryCardType | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),

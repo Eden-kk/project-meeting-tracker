@@ -196,7 +196,7 @@ class FinalizeMeetingMemoryOutput(BaseModel):
 class SearchWorkspaceTranscriptsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workspace_id: str = Field(min_length=1)
-    q: str = Field(min_length=1, max_length=500)
+    q: Optional[str] = Field(default=None, max_length=500)
     limit: Optional[int] = Field(default=10, ge=1, le=50)
 
 
@@ -222,7 +222,7 @@ class SearchWorkspaceTranscriptsOutput(BaseModel):
 class SearchWorkspaceCardsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     workspace_id: str = Field(min_length=1)
-    q: str = Field(min_length=1, max_length=500)
+    q: Optional[str] = Field(default=None, max_length=500)
     type: Optional[CardType] = None
     limit: Optional[int] = Field(default=10, ge=1, le=50)
 

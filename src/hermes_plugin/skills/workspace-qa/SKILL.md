@@ -63,7 +63,9 @@ locked in), and pain_points + risks (what's slowing things down).
    (e.g., the question is "what's the progress?" with no domain noun),
    omit `q` and rely on the `type` filter alone — the tool returns the
    most-recent / highest-confidence cards of that type, which is the
-   right shape of answer for that kind of question.
+   right shape of answer for that kind of question. Calling without
+   `q` is fully supported — the schema makes `q` optional and the
+   route returns the top cards for the remaining filters.
 
 ### Examples
 

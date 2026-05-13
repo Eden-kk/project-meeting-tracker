@@ -444,7 +444,7 @@ def search_segments_fts(
     session,
     *,
     workspace_id: str,
-    query: str,
+    query: str | None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -452,13 +452,52 @@ def search_segments_fts(
 
     Returns (rows, total). Each row is a dict with: segment_id, meeting_id,
     meeting_title, speaker_name, start_ms, end_ms, text, rank, snippet.
-    Empty query returns (empty, 0) without touching the DB.
+
+    When ``query`` is empty/None, returns the most recent segments in the
+    workspace (no FTS predicate), ordered by meeting recency then start_ms.
     """
     from sqlalchemy import text
 
     q = (query or "").strip()
+
     if not q:
-        return [], 0
+        sql_count = text(
+            """
+            SELECT COUNT(*)
+              FROM speaker_segments s
+              JOIN meetings m ON m.id = s.meeting_id
+              JOIN conversation_artifacts a ON a.id = m.artifact_id
+             WHERE a.workspace_id = :ws
+            """
+        )
+        total = session.execute(sql_count, {"ws": workspace_id}).scalar_one()
+
+        sql_rows = text(
+            """
+            SELECT s.id              AS segment_id,
+                   s.meeting_id      AS meeting_id,
+                   m.title           AS meeting_title,
+                   s.speaker_name    AS speaker_name,
+                   s.speaker_id      AS speaker_id,
+                   s.start_ms        AS start_ms,
+                   s.end_ms          AS end_ms,
+                   s.text            AS text,
+                   0.0               AS rank,
+                   ''                AS snippet
+              FROM speaker_segments s
+              JOIN meetings m ON m.id = s.meeting_id
+              JOIN conversation_artifacts a ON a.id = m.artifact_id
+             WHERE a.workspace_id = :ws
+             ORDER BY m.created_at DESC NULLS LAST,
+                      s.start_ms NULLS LAST,
+                      s.id
+             LIMIT :lim OFFSET :off
+            """
+        )
+        rows = session.execute(
+            sql_rows, {"ws": workspace_id, "lim": limit, "off": offset}
+        ).mappings().all()
+        return [dict(r) for r in rows], int(total)
 
     sql_count = text(
         """
@@ -506,7 +545,7 @@ def search_cards_fts(
     session,
     *,
     workspace_id: str,
-    query: str,
+    query: str | None,
     type: str | None = None,
     limit: int = 20,
     offset: int = 0,
@@ -517,17 +556,65 @@ def search_cards_fts(
     Returns (rows, total). Each row dict has: memory_card_id, meeting_id,
     meeting_title, type, title, content, confidence, source_start_ms,
     source_end_ms, rank, snippet.
+
+    When ``query`` is empty/None, returns the highest-confidence / most
+    recent cards matching the remaining filters (workspace, optional
+    type). This is the no-`q` path the workspace-qa skill uses for
+    general project-progress questions.
     """
     from sqlalchemy import text
 
     q = (query or "").strip()
-    if not q:
-        return [], 0
 
     type_clause = "AND c.type = :type " if type else ""
-    params: dict = {"ws": workspace_id, "q": q, "lim": limit, "off": offset}
+    base_params: dict = {"ws": workspace_id, "lim": limit, "off": offset}
     if type:
-        params["type"] = type
+        base_params["type"] = type
+
+    if not q:
+        sql_count = text(
+            f"""
+            SELECT COUNT(*)
+              FROM memory_cards c
+              JOIN meetings m ON m.id = c.meeting_id
+              JOIN conversation_artifacts a ON a.id = m.artifact_id
+             WHERE a.workspace_id = :ws
+               AND c.hidden_at IS NULL
+               {type_clause}
+            """
+        )
+        total = session.execute(sql_count, base_params).scalar_one()
+
+        sql_rows = text(
+            f"""
+            SELECT c.id              AS memory_card_id,
+                   c.meeting_id      AS meeting_id,
+                   m.title           AS meeting_title,
+                   c.type            AS type,
+                   c.title           AS title,
+                   c.content         AS content,
+                   c.confidence      AS confidence,
+                   c.source_start_ms AS source_start_ms,
+                   c.source_end_ms   AS source_end_ms,
+                   0.0               AS rank,
+                   ''                AS snippet
+              FROM memory_cards c
+              JOIN meetings m ON m.id = c.meeting_id
+              JOIN conversation_artifacts a ON a.id = m.artifact_id
+             WHERE a.workspace_id = :ws
+               AND c.hidden_at IS NULL
+               {type_clause}
+             ORDER BY c.confidence DESC NULLS LAST,
+                      c.created_at DESC,
+                      c.id
+             LIMIT :lim OFFSET :off
+            """
+        )
+        rows = session.execute(sql_rows, base_params).mappings().all()
+        return [dict(r) for r in rows], int(total)
+
+    params: dict = dict(base_params)
+    params["q"] = q
 
     sql_count = text(
         f"""

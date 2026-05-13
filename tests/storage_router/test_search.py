@@ -99,12 +99,61 @@ async def test_search_transcripts_scoped_to_workspace(client) -> None:
     assert body["items"][0]["meeting_id"] == m1
 
 
-async def test_search_transcripts_empty_q_422(client) -> None:
+async def test_search_transcripts_no_q_returns_recent_segments(client) -> None:
+    """q omitted (or empty) → returns recent segments without FTS predicate."""
+    m1 = _seed_meeting("Recent meeting")
+    _seed_segment(m1, "seg_n1", "anything goes here")
+    _seed_segment(m1, "seg_n2", "second segment from the same meeting")
+
+    # No q at all.
     r = await client.get(
+        "/api/search/transcripts",
+        params={"workspace_id": "ws_dev"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] >= 2
+    seg_ids = {it["segment_id"] for it in body["items"]}
+    assert {"seg_n1", "seg_n2"}.issubset(seg_ids)
+    for it in body["items"]:
+        assert it["rank"] == 0.0
+        assert it["snippet"] == ""
+
+    # Empty q string → same shape as no q.
+    r2 = await client.get(
         "/api/search/transcripts",
         params={"q": "", "workspace_id": "ws_dev"},
     )
-    assert r.status_code == 422
+    assert r2.status_code == 200
+    assert r2.json()["total"] == body["total"]
+
+
+async def test_search_transcripts_no_q_workspace_scoped(client) -> None:
+    """No-q path must still respect workspace_id."""
+    with SessionLocal() as s:
+        s.execute(
+            sql_text(
+                "INSERT INTO workspaces (id, name) VALUES ('ws_other','Other') "
+                "ON CONFLICT (id) DO NOTHING"
+            )
+        )
+        s.execute(
+            sql_text(
+                "INSERT INTO users (id, workspace_id, email, display_name) "
+                "VALUES ('u_other','ws_other','o@x.test','O') ON CONFLICT (id) DO NOTHING"
+            )
+        )
+        s.commit()
+    m_other = _seed_meeting("Other-ws meeting", workspace_id="ws_other", created_by="u_other")
+    _seed_segment(m_other, "seg_other_only", "this should not leak")
+
+    r = await client.get(
+        "/api/search/transcripts",
+        params={"workspace_id": "ws_dev"},
+    )
+    assert r.status_code == 200
+    seg_ids = {it["segment_id"] for it in r.json()["items"]}
+    assert "seg_other_only" not in seg_ids
 
 
 async def test_search_transcripts_no_match_returns_empty(client) -> None:
