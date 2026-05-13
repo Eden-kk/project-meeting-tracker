@@ -19,11 +19,25 @@ export function MeetingCard({ meeting }: { meeting: StoredMeetingSummary }) {
     <>
       <Link
         to={`/ws/${workspaceId}/meetings/${meeting.meeting_id}`}
-        className="relative block rounded border border-gray-200 p-4 transition hover:border-gray-400"
+        className="block rounded border border-gray-200 p-4 transition hover:border-gray-400"
       >
         <div className="flex items-start justify-between gap-2">
-          <h3 className="line-clamp-2 text-sm font-semibold">{meeting.title}</h3>
-          <StatusPill status={meeting.status} />
+          <h3 className="line-clamp-2 flex-1 text-sm font-semibold">{meeting.title}</h3>
+          <div className="flex shrink-0 items-center gap-1">
+            <StatusPill status={meeting.status} />
+            <button
+              type="button"
+              aria-label={`Delete ${meeting.title}`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowDelete(true);
+              }}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            >
+              ⋮
+            </button>
+          </div>
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs text-gray-600">
           <SourceIcon sourceType={meeting.source_type} />
@@ -32,18 +46,6 @@ export function MeetingCard({ meeting }: { meeting: StoredMeetingSummary }) {
             <span className="rounded bg-gray-100 px-2 py-0.5">{meeting.detected_pattern}</span>
           )}
         </div>
-        <button
-          type="button"
-          aria-label={`Delete ${meeting.title}`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setShowDelete(true);
-          }}
-          className="absolute right-2 top-2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-        >
-          ⋮
-        </button>
       </Link>
       {showDelete && (
         <DeleteMeetingDialog
