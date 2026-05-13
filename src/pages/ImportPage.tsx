@@ -12,13 +12,18 @@ type Mode = 'upload' | 'paste';
 
 const ACCEPT = {
   'audio/*': [],
+  'video/mp4': ['.mp4'],
   'text/vtt': ['.vtt'],
   'application/x-subrip': ['.srt'],
   'text/plain': ['.txt'],
 };
 
 function classifyFile(file: File): 'voice_file' | 'transcript_file' {
-  return file.type.startsWith('audio/') ? 'voice_file' : 'transcript_file';
+  if (file.type.startsWith('audio/')) return 'voice_file';
+  // mp4 carries a video track but we only transcribe its audio; route
+  // to voice-ingest, which strips the video stream with ffmpeg.
+  if (file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4')) return 'voice_file';
+  return 'transcript_file';
 }
 
 function pickSourceType(mode: Mode, file: File | null): StoredMeetingSummary['source_type'] {
@@ -30,7 +35,7 @@ function pickSourceType(mode: Mode, file: File | null): StoredMeetingSummary['so
 function friendlyImportError(detail: unknown): string {
   if (typeof detail === 'object' && detail !== null && 'code' in detail) {
     const code = (detail as { code?: string }).code;
-    if (code === 'no_input') return 'Please add a transcript, audio file, or pasted text.';
+    if (code === 'no_input') return 'Please add a transcript, audio/video file, or pasted text.';
     if (code === 'multiple_inputs') return 'Provide exactly one of file or pasted text.';
     if (code === 'invalid_format') return 'That file format is not supported.';
   }
@@ -158,7 +163,7 @@ export default function ImportPage() {
                 {file.name} ({Math.round(file.size / 1024)} KB)
               </p>
             ) : (
-              <p>Drop an audio or transcript file, or click to choose.</p>
+              <p>Drop an audio, mp4 video, or transcript file, or click to choose.</p>
             )}
           </div>
           {fileError && <p className="mt-1 text-sm text-red-600">{fileError}</p>}

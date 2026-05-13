@@ -6,6 +6,9 @@ Public surface: `transcribe_voice_file(path) -> NormalizedTranscript dict`.
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
+import tempfile
 from math import exp
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +17,8 @@ from faster_whisper import WhisperModel
 
 from . import config, schema
 from .diarize import assign_speakers
+
+_VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov"}
 
 log = logging.getLogger(__name__)
 
@@ -40,13 +45,55 @@ def _confidence(avg_logprob: float | None) -> float | None:
     return max(0.0, min(1.0, exp(avg_logprob)))
 
 
+def _extract_audio_track(video_path: str) -> str:
+    """Strip a video container down to a 16-kHz mono WAV via ffmpeg.
+
+    Returned path lives in tempdir owned by the caller — we don't try to
+    clean it up here because faster-whisper and pyannote both stream the
+    file lazily during transcribe; the request handler tears down its
+    tempdir at the end of the request.
+    """
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError(
+            "ffmpeg not found on PATH; cannot extract audio from video container"
+        )
+    out_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", video_path,
+            "-vn",                  # drop video stream
+            "-ac", "1",             # mono
+            "-ar", "16000",         # 16 kHz (whisper-native)
+            "-f", "wav",
+            out_path,
+        ],
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"ffmpeg failed to extract audio: {stderr or 'unknown error'}")
+    return out_path
+
+
 def transcribe_voice_file(
     audio_path: str | Path,
     *,
     meeting_id: str | None = None,
 ) -> dict:
-    """Transcribe an audio file and return a NormalizedTranscript dict."""
+    """Transcribe an audio file and return a NormalizedTranscript dict.
+
+    If `audio_path` points to a video container (.mp4/.m4v/.mov), the audio
+    track is extracted to a temporary WAV first so both faster-whisper and
+    pyannote diarization see a clean PCM stream — pyannote's torchaudio
+    backend is unreliable on mp4 muxed files.
+    """
     path = str(audio_path)
+    extracted_wav: str | None = None
+    if Path(path).suffix.lower() in _VIDEO_SUFFIXES:
+        log.info("video container detected (%s); extracting audio track", Path(path).suffix)
+        extracted_wav = _extract_audio_track(path)
+        path = extracted_wav
     model = _get_model()
     segments_iter, _info = model.transcribe(
         path,
@@ -87,6 +134,11 @@ def transcribe_voice_file(
         "segments": segments,
     }
     schema.validate(result)
+    if extracted_wav is not None:
+        try:
+            Path(extracted_wav).unlink()
+        except OSError:
+            pass
     return result
 
 
