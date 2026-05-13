@@ -83,6 +83,38 @@ describe('MeetingCard', () => {
     expect(screen.getByText('Q1 sync')).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
   });
+
+  it('shows the "Zoom bot active" badge for live zoom_bot meetings', () => {
+    render(
+      wsWrap(
+        <MeetingCard
+          meeting={fix('m_zoom_live', {
+            title: 'Live zoom call',
+            source_type: 'zoom_bot',
+            status: 'live',
+          })}
+        />,
+      ),
+    );
+    expect(screen.getByTestId('zoom-bot-active-badge')).toBeInTheDocument();
+  });
+
+  it('hides the badge when the zoom_bot meeting is no longer live', () => {
+    render(
+      wsWrap(
+        <MeetingCard
+          meeting={fix('m_zoom_ready', {
+            title: 'Past zoom call',
+            source_type: 'zoom_bot',
+            status: 'ready',
+          })}
+        />,
+      ),
+    );
+    expect(
+      screen.queryByTestId('zoom-bot-active-badge'),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe('MeetingTable', () => {

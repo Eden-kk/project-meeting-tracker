@@ -40,6 +40,7 @@
       "enum": [
         "live_voice",
         "zoom_rtms",
+        "zoom_bot",
         "voice_file",
         "transcript_file",
         "pasted_transcript"

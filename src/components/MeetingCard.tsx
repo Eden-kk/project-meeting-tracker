@@ -45,6 +45,14 @@ export function MeetingCard({ meeting }: { meeting: StoredMeetingSummary }) {
           {meeting.detected_pattern && (
             <span className="rounded bg-gray-100 px-2 py-0.5">{meeting.detected_pattern}</span>
           )}
+          {meeting.source_type === 'zoom_bot' && meeting.status === 'live' && (
+            <span
+              data-testid="zoom-bot-active-badge"
+              className="rounded bg-violet-100 px-2 py-0.5 font-medium text-violet-800"
+            >
+              Zoom bot active
+            </span>
+          )}
         </div>
       </Link>
       {showDelete && (

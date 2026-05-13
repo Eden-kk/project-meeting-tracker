@@ -18,6 +18,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 class SourceType(Enum):
     live_voice = "live_voice"
     zoom_rtms = "zoom_rtms"
+    zoom_bot = "zoom_bot"
     voice_file = "voice_file"
     transcript_file = "transcript_file"
     pasted_transcript = "pasted_transcript"

@@ -688,7 +688,7 @@ components:
         confidence:   { type: number, minimum: 0, maximum: 1, nullable: true }
         source_type:
           type: string
-          enum: [live_voice, zoom_rtms, voice_file, transcript_file, pasted_transcript]
+          enum: [live_voice, zoom_rtms, zoom_bot, voice_file, transcript_file, pasted_transcript]
         is_final:     { type: boolean }
 
     MemoryCard:
