@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getMeeting, getMeetingTranscript } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { useWorkspace } from '../hooks/useWorkspace';
@@ -11,6 +11,7 @@ import { AskHermesTab } from '../components/AskHermesTab';
 import { AnswerBody } from '../components/AnswerBody';
 import { useScrollTarget } from '../hooks/useScrollTarget';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
+import { DeleteMeetingDialog } from '../components/DeleteMeetingDialog';
 
 const TABS: TabDef[] = [
   { id: 'summary', label: 'Summary' },
@@ -23,7 +24,10 @@ const TABS: TabDef[] = [
 export default function MeetingReviewPage() {
   const { workspaceId } = useWorkspace();
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [tab, setTab] = useState('transcript');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
   const scrollTarget = useScrollTarget();
 
   const meetingQuery = useQuery({
@@ -78,7 +82,37 @@ export default function MeetingReviewPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="flex-1 text-2xl font-semibold">{title}</h1>
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Meeting actions"
+              onClick={() => setMenuOpen((o) => !o)}
+              className="rounded p-1 text-gray-500 hover:bg-gray-100"
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMenuOpen(false)}
+                  aria-hidden="true"
+                />
+                <div className="absolute right-0 z-20 mt-1 w-44 rounded border border-gray-200 bg-white py-1 shadow-md">
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); setShowDelete(true); }}
+                    className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50"
+                  >
+                    Delete this meeting
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
         <div className="flex flex-wrap gap-3 text-sm text-gray-600">
           {sourceType && <span>Source: {sourceType}</span>}
           <span>Pattern: {detectedPattern}</span>
@@ -115,6 +149,14 @@ export default function MeetingReviewPage() {
           <AskHermesTab meetingId={id} onEvidenceClick={handleEvidenceClick} />
         </div>
       </Tabs>
+      {showDelete && (
+        <DeleteMeetingDialog
+          meeting={{ id, title }}
+          workspaceId={workspaceId}
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => navigate(`/ws/${workspaceId}/meetings`)}
+        />
+      )}
     </div>
   );
 }
