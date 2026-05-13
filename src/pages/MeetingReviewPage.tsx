@@ -8,6 +8,7 @@ import { Tabs, type TabDef } from '../components/Tabs';
 import { TranscriptView } from '../components/TranscriptView';
 import { MemoryCardsTab } from '../components/MemoryCardsTab';
 import { AskHermesTab } from '../components/AskHermesTab';
+import { AnswerBody } from '../components/AnswerBody';
 import { useScrollTarget } from '../hooks/useScrollTarget';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
@@ -90,9 +91,9 @@ export default function MeetingReviewPage() {
       <Tabs tabs={TABS} value={tab} onChange={setTab}>
         {tab === 'summary' &&
           (meeting.finalized_summary ? (
-            <p className="whitespace-pre-line text-sm leading-relaxed text-gray-900">
-              {meeting.finalized_summary}
-            </p>
+            <div className="text-sm text-gray-900">
+              <AnswerBody text={meeting.finalized_summary} />
+            </div>
           ) : (
             <p className="text-sm text-gray-500">
               Summary will appear after Hermes finalizes this meeting.
