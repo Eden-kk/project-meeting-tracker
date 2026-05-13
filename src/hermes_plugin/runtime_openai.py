@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -585,14 +586,50 @@ def run_chunked_extraction_openai(
         total_cards += cards_in_chunk
         chunks_processed += 1
         if final_text:
-            topic_sentences.append(final_text.strip())
+            topic_sentences.append(_strip_chunk_prefix(final_text.strip()))
 
-    summary = "\n".join(topic_sentences)
+    summary = _run_openai_summary_pass(topic_sentences=topic_sentences, llm=llm, model=model)
     return {
         "cards_created": total_cards,
         "chunks_processed": chunks_processed,
         "summary": summary,
     }
+
+
+# Legacy chunk-skill outputs sometimes started with `Chunk N/M:`; the
+# updated skill drops the prefix but we strip it defensively in case a
+# stale skill version is on disk.
+_CHUNK_PREFIX_RE = re.compile(r"^\s*Chunk\s+\d+\s*/\s*\d+\s*:\s*", flags=re.IGNORECASE)
+
+
+def _strip_chunk_prefix(line: str) -> str:
+    return _CHUNK_PREFIX_RE.sub("", line).strip()
+
+
+def _run_openai_summary_pass(
+    *,
+    topic_sentences: list[str],
+    llm: Any,
+    model: str,
+) -> str:
+    """Single-shot OpenAI consolidation of per-chunk topic sentences into the
+    SPA Summary tab's narrative markdown. Mirrors `runtime._run_summary_pass`.
+    Returns the markdown text; empty on no input.
+    """
+    if not topic_sentences:
+        return ""
+    system = _load_skill("meeting-summary-overall")
+    bootstrap = "\n".join(topic_sentences)
+    response = llm.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": bootstrap},
+        ],
+        max_tokens=1024,
+    )
+    text = (response.choices[0].message.content or "").strip()
+    return text
 
 
 __all__ = ["run_skill", "run_chunked_extraction_openai", "_SINGLE_PASS_CHAR_LIMIT"]

@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
+
+
+# Defensive strip of legacy `Chunk N/M:` prefixes from per-chunk topic
+# sentences before they're handed to the meeting-summary-overall skill.
+# The chunk skill no longer emits the prefix, but stale skill files may.
+_CHUNK_PREFIX_RE = re.compile(r"^\s*Chunk\s+\d+\s*/\s*\d+\s*:\s*", flags=re.IGNORECASE)
+
+
+def _strip_chunk_prefix(line: str) -> str:
+    return _CHUNK_PREFIX_RE.sub("", line).strip()
 
 from . import chunker as _chunker_mod
 from .chunker import Chunk, chunk_segments
@@ -758,7 +769,7 @@ def run_chunked_extraction(
         total_cards += cards_in_chunk
         chunks_processed += 1
         if final_text:
-            topic_sentences.append(final_text.strip())
+            topic_sentences.append(_strip_chunk_prefix(final_text.strip()))
 
     summary = _run_summary_pass(
         topic_sentences=topic_sentences, llm=llm, model=model
