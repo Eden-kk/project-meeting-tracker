@@ -159,6 +159,40 @@ just expect deploys driven through tooling to need an explicit
 authorization step, or a `Bash(ssh -*-p 41734 *root@213.192.2.103*:*)`
 permission rule in `~/.claude/settings.json`.
 
+### Issue #7 — "Pod resume failed: not enough free memory on the host"
+
+RunPod schedules each pod onto a specific physical host and pins it
+there across pause/resume. When you pause, RunPod releases your RAM
+but keeps the disk volume bound to that host. On resume, if another
+tenant's pod has grown into your RAM in the meantime, the host can't
+re-allocate it and RunPod surfaces:
+
+> Pod resume failed: There are not enough free memory on the host
+> machine to start this pod.
+
+The pod is intact — RunPod just can't schedule it on the same host
+right now. Common during peak hours. **`scripts/runpod-recover.sh` is
+the automated recovery for this class of incident** — see §7.
+
+Caveat: the host/port/IP of a pod can change when it is recreated
+(not just resumed). The RunPod *proxy URL* (`<podid>-8050.proxy.runpod.net`)
+stays the same across stop/start because it is keyed on the pod ID,
+but the SSH endpoint may change. Re-verify the SSH host:port from
+the RunPod console after a cold start.
+
+### Issue #8 — `DATABASE_URL` in repo `.env.local` may point at a stale, separate pod
+
+A multi-hour incident on 2026-05-14 was caused by the repo's
+`.env.local` referencing a `DATABASE_URL` of `103.196.86.88:42605` —
+a *separate* RunPod pod that had since been terminated. The app pod
+was actually always using its **own local Postgres** on
+`127.0.0.1:5432`; the remote DSN was stale and ignored by the
+running process. The trap is that diagnostic probes (`nc`, fresh
+`psycopg.connect`) against the stale DSN look like a DB outage when
+the real DB is fine. **First confirm which DB the live uvicorn is
+*actually* connected to** (`tr '\0' '\n' < /proc/<pid>/environ | grep DATABASE_URL`)
+before believing connectivity tests.
+
 ## 5. Post-deploy verification checklist
 
 `deploy.sh`'s own health check covers the first two. Run the rest from
@@ -182,7 +216,45 @@ ss -tlnp | grep 8050                                   # uvicorn listening
 tail -20 /var/log/storage-router.log                   # clean "Application startup complete"
 ```
 
-## 6. Recovery — "the site is down / unusable"
+## 6. Pod won't resume / start — `scripts/runpod-recover.sh`
+
+When the RunPod console reports "pod resume failed: not enough free
+memory on the host" (issue #7) or the pod is otherwise stuck in a
+non-RUNNING state, run:
+
+```bash
+make pod-recover                               # reads creds from .env.local
+# or
+RUNPOD_API_KEY=... RUNPOD_POD_ID=... bash scripts/runpod-recover.sh
+```
+
+The script (using the RunPod REST API at `https://rest.runpod.io/v1`):
+
+1. Queries pod state.
+2. If `RUNNING` but http unreachable → exits with a hint to run
+   `scripts/deploy.sh` (this is a deploy problem, not infra).
+3. If stopped/paused → POSTs `/pods/{id}/start` up to 5 times with
+   exponential backoff (~10 min). "No host memory" errors typically
+   clear within this window as other tenants release RAM.
+4. If still stuck → falls back to stop + start, letting RunPod
+   re-schedule on a different host. The public proxy URL stays the
+   same.
+5. Once `RUNNING`, waits up to 90s for the public URL to respond.
+6. If the URL returns 404, prints a reminder to run
+   `scripts/deploy.sh` over SSH to start the pod's services.
+
+Required credentials (one-time setup):
+- `RUNPOD_API_KEY` — from https://www.runpod.io/console/user/settings → API Keys → "Create API Key" (read+write).
+- `RUNPOD_POD_ID` — the pod's id (e.g. `riz0b05s7yg7ab`), visible in the RunPod console URL.
+
+Add both to `.env.local` (gitignored). The script reads them
+automatically.
+
+After the pod returns to RUNNING, run `scripts/deploy.sh` over SSH
+to bring the storage-router + ingest services back online (the
+pod's container init only restores the base OS, not our processes).
+
+## 7. Recovery — "the site is down / unusable"
 
 1. **SSH in**, check what is actually wrong:
    ```bash

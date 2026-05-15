@@ -3,7 +3,7 @@ PIP := .venv/bin/pip
 ALEMBIC := .venv/bin/alembic
 PYTEST := .venv/bin/pytest
 
-.PHONY: venv install db-up db-down migrate test run codegen deploy
+.PHONY: venv install db-up db-down migrate test run codegen deploy pod-recover
 
 venv:
 	python3.12 -m venv .venv
@@ -17,6 +17,13 @@ install: venv
 # Reproducible pod deploy — see scripts/deploy.sh for the full sequence.
 deploy:
 	bash scripts/deploy.sh
+
+# Wake a paused/stopped RunPod pod via the REST API — see
+# scripts/runpod-recover.sh. Needs RUNPOD_API_KEY + RUNPOD_POD_ID
+# (in .env.local). Use when the pod is in a non-RUNNING state on
+# RunPod's side (e.g. "resume failed: not enough host memory").
+pod-recover:
+	bash scripts/runpod-recover.sh
 
 db-up:
 	docker compose up -d postgres
