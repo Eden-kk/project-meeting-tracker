@@ -35,7 +35,7 @@ ENV_FILE="${ENV_FILE:-.env.local}"
 
 [ -f "$ENV_FILE" ] && { set -a; . "./${ENV_FILE}"; set +a; }
 : "${RUNPOD_API_KEY:?missing RUNPOD_API_KEY (in .env.local or env)}"
-DC="${RUNPOD_DC:-US-OR-1}"
+DC="${RUNPOD_DC:-US-CA-2}"
 PG_PASSWORD="${PG_PASSWORD:-$(openssl rand -hex 16)}"
 
 # Pubkey to bake into both pods. Use this machine's key (which the user
@@ -55,25 +55,53 @@ api() {
 
 j() { python3 -c "import json,sys; d=json.load(sys.stdin); $1" 2>/dev/null || echo "" ; }
 
-echo "=== [1/6] create network volume (50 GB, dc=${DC}) for db-pod"
-vol_resp=$(api POST /networkvolumes "{\"name\":\"tracker-db-vol\",\"size\":50,\"dataCenterId\":\"${DC}\"}")
-echo "    $vol_resp"
-VOLUME_ID=$(echo "$vol_resp" | j 'print(d.get("id",""))')
-[ -n "$VOLUME_ID" ] || { echo "FAILED: no volume id"; exit 1; }
-echo "    volume id: $VOLUME_ID"
+echo "=== [1+2/6] create network volume + db-pod (multi-DC fallback)"
+# A volume is bound to one DC. If that DC has no CPU capacity, the pod
+# create fails permanently for this volume — and the volume bills until
+# you delete it. So we try DCs in order: create volume + pod together,
+# and on pod-create failure DELETE the volume before trying the next DC.
+# This avoids orphan-volume billing while still finding a DC that works.
+DC_CANDIDATES=("$DC" US-WA-1 US-NE-1 US-TX-3 US-IL-1 US-KS-2 US-MO-1 US-MO-2 US-NC-2 US-CA-2 EU-FR-1 EU-NL-1 EU-CZ-1 EU-RO-1 CA-MTL-3 CA-MTL-4 AP-JP-1)
+# De-dup while preserving order:
+DC_TRY=()
+seen=""
+for d in "${DC_CANDIDATES[@]}"; do
+  if [[ ":$seen:" != *":$d:"* ]]; then DC_TRY+=("$d"); seen="$seen:$d"; fi
+done
 
-echo "=== [2/6] create db-pod (postgres:16, vol attached, cpu)"
-# postgres:16 image listens on 5432; PUBLIC_KEY env is consumed by the
-# RunPod base image's ssh entrypoint — but plain postgres:16 doesn't run
-# sshd, so for DB we expose 5432 directly (no ssh needed; we drive PG
-# via the app pod or via DATABASE_URL).
-db_body=$(cat <<JSON
+VOLUME_ID=""
+DB_POD_ID=""
+
+if [ -n "${RUNPOD_DB_VOLUME_ID:-}" ]; then
+  echo "    reusing existing RUNPOD_DB_VOLUME_ID=${RUNPOD_DB_VOLUME_ID}"
+  VOLUME_ID="$RUNPOD_DB_VOLUME_ID"
+  DC_TRY=("$DC")  # bound to that DC; only one option
+fi
+
+for dc in "${DC_TRY[@]}"; do
+  echo "  --- dc=${dc} ---"
+  if [ -z "$VOLUME_ID" ]; then
+    vol_resp=$(api POST /networkvolumes "{\"name\":\"tracker-db-vol\",\"size\":50,\"dataCenterId\":\"${dc}\"}")
+    VOLUME_ID=$(echo "$vol_resp" | j 'print(d.get("id",""))')
+    if [ -z "$VOLUME_ID" ]; then
+      echo "    volume create failed in ${dc}: ${vol_resp:0:200}"
+      continue
+    fi
+    echo "    volume id: $VOLUME_ID (dc=${dc})"
+  fi
+
+  # cpuFlavorIds is mandatory; valid ids are cpu3c|cpu3g|cpu3m|cpu5c|cpu5g|cpu5m.
+  # Pass both gen3 + gen5 general-purpose so RunPod can substitute.
+  for spec in '"vcpuCount":2' '"vcpuCount":1' '"vcpuCount":4'; do
+    db_body=$(cat <<JSON
 {
   "name": "tracker-db",
   "cloudType": "SECURE",
   "computeType": "CPU",
+  "cpuFlavorIds": ["cpu3g", "cpu5g", "cpu3c", "cpu5c", "cpu3m", "cpu5m"],
+  "cpuFlavorPriority": "availability",
   "imageName": "postgres:16",
-  "vcpuCount": 2,
+  ${spec},
   "containerDiskInGb": 10,
   "networkVolumeId": "${VOLUME_ID}",
   "volumeMountPath": "/var/lib/postgresql/data",
@@ -84,16 +112,35 @@ db_body=$(cat <<JSON
     "POSTGRES_DB": "tracker",
     "POSTGRES_PASSWORD": "${PG_PASSWORD}",
     "PGDATA": "/var/lib/postgresql/data/pgdata"
-  },
-  "dataCenterIds": ["${DC}"]
+  }
 }
 JSON
 )
-db_resp=$(api POST /pods "$db_body")
-echo "    $db_resp"
-DB_POD_ID=$(echo "$db_resp" | j 'print(d.get("id",""))')
-[ -n "$DB_POD_ID" ] || { echo "FAILED: no db-pod id"; exit 1; }
-echo "    db-pod id: $DB_POD_ID"
+    db_resp=$(api POST /pods "$db_body")
+    DB_POD_ID=$(echo "$db_resp" | j 'print(d.get("id",""))')
+    if [ -n "$DB_POD_ID" ]; then
+      echo "    db-pod id: $DB_POD_ID (dc=${dc}, ${spec})"
+      DC="$dc"   # record where we actually landed
+      break 2
+    fi
+    echo "    ${spec} in ${dc}: ${db_resp:0:120}..."
+  done
+
+  # All specs exhausted for this DC. If we created the volume here, drop it
+  # before moving on so it doesn't bill while we try other DCs.
+  if [ -z "${RUNPOD_DB_VOLUME_ID:-}" ] && [ -n "$VOLUME_ID" ]; then
+    echo "    delete volume $VOLUME_ID (dc=${dc} exhausted)"
+    api DELETE "/networkvolumes/${VOLUME_ID}" >/dev/null || true
+    VOLUME_ID=""
+  fi
+done
+
+[ -n "$DB_POD_ID" ] || { echo "FAILED: no DC has CPU capacity; volume left clean"; exit 1; }
+
+# Persist the volume id so re-runs don't orphan-bill on a partial failure.
+grep -v '^RUNPOD_DB_VOLUME_ID=' "$ENV_FILE" > "${ENV_FILE}.new" 2>/dev/null || true
+echo "RUNPOD_DB_VOLUME_ID=${VOLUME_ID}" >> "${ENV_FILE}.new"
+mv "${ENV_FILE}.new" "$ENV_FILE"; chmod 600 "$ENV_FILE"
 
 echo "=== [3/6] create app-pod (ubuntu:22.04, ssh + 8050)"
 # Bake the pubkey via PUBLIC_KEY env (RunPod's base ssh container reads
@@ -104,6 +151,8 @@ app_body=$(cat <<JSON
   "name": "tracker-app",
   "cloudType": "SECURE",
   "computeType": "CPU",
+  "cpuFlavorIds": ["cpu3g", "cpu5g", "cpu3c", "cpu5c", "cpu3m", "cpu5m"],
+  "cpuFlavorPriority": "availability",
   "imageName": "runpod/base:0.6.2-cpu",
   "vcpuCount": 4,
   "containerDiskInGb": 30,
@@ -111,8 +160,7 @@ app_body=$(cat <<JSON
   "supportPublicIp": true,
   "env": {
     "PUBLIC_KEY": "${PUBKEY}"
-  },
-  "dataCenterIds": ["${DC}"]
+  }
 }
 JSON
 )
