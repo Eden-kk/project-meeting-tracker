@@ -64,12 +64,17 @@ def create_app() -> FastAPI:
     app.state.blob_store = LocalFsBlobStore(settings.blob_store_dir)
     # Wave 8.3 — per-meeting sentence buffers, keyed by meeting_id. The
     # `live_route` handlers create entries on first chunk and pop them on
-    # `end_live_meeting`. Wave 8.5/8.6 will add similar registries for
-    # asyncio tasks (gate consumer, topic-tracker tick) following the same
-    # "Per-meeting task lifecycle" pattern documented in the plan.
+    # `end_live_meeting`.
     from storage_router.sentence_buffer import SentenceBuffer  # noqa: E402
 
     app.state.sentence_buffers: dict[str, SentenceBuffer] = {}
+    # Wave 8.5/8.6 — per-meeting asyncio task registry, keyed by meeting_id;
+    # each value is a {role: asyncio.Task} dict (topic-tracker, questioner,
+    # gate consumer, ...). live_route + the live_* modules populate it;
+    # `_shutdown` drains it. Initialised here so it always exists even when
+    # no live meeting ever runs — otherwise `_shutdown` and the live_*
+    # readers raise AttributeError on a freshly-started process.
+    app.state.live_tasks: dict[str, dict] = {}
 
     @app.on_event("startup")
     def _startup() -> None:

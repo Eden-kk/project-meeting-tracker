@@ -17,21 +17,30 @@ dependencies = [
   "pydantic-settings==2.6.1",
   "python-multipart==0.0.12",
   "python-dotenv==1.0.1",
+  # hermes_plugin is imported in-process by storage_router.hermes_runtime,
+  # so its runtime deps belong here — `pip install -e .` must be enough to
+  # run finalize + QA. These previously lived only in the `hermes` extra,
+  # which the documented `pip install -e '.[dev]'` never pulled, so every
+  # finalize 500'd on the pod with ModuleNotFoundError (openai/anthropic).
+  "httpx==0.27.2",
+  "pyyaml>=6.0,<7",
+  "anthropic>=0.39,<0.50",
+  "openai>=1.50.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest==8.3.3",
   "pytest-asyncio==0.24.0",
-  "httpx==0.27.2",
   "ruff==0.7.1",
   "datamodel-code-generator==0.26.3",
 ]
+# Retained for installing the hermes plugin standalone. The storage-router
+# itself no longer needs this extra — the deps moved into `dependencies`.
 hermes = [
-  "pydantic==2.9.2",
-  "httpx==0.27.2",
   "pyyaml>=6.0,<7",
   "anthropic>=0.39,<0.50",
+  "openai>=1.50.0",
 ]
 
 [project.scripts]
