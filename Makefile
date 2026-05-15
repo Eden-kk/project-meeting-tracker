@@ -3,7 +3,7 @@ PIP := .venv/bin/pip
 ALEMBIC := .venv/bin/alembic
 PYTEST := .venv/bin/pytest
 
-.PHONY: venv install db-up db-down migrate test run codegen deploy pod-recover
+.PHONY: venv install db-up db-down migrate test run codegen deploy pod-recover pods-up bootstrap-app-pod provision-pods
 
 venv:
 	python3.12 -m venv .venv
@@ -24,6 +24,17 @@ deploy:
 # RunPod's side (e.g. "resume failed: not enough host memory").
 pod-recover:
 	bash scripts/runpod-recover.sh
+
+# Greenfield provision of the 2-pod topology (db-pod + app-pod) and
+# bootstrap the app pod end-to-end. Needs RUNPOD_API_KEY in .env.local.
+# See scripts/runpod-provision.sh + scripts/bootstrap-app-pod.sh.
+provision-pods:
+	bash scripts/runpod-provision.sh
+
+bootstrap-app-pod:
+	bash scripts/bootstrap-app-pod.sh
+
+pods-up: provision-pods bootstrap-app-pod
 
 db-up:
 	docker compose up -d postgres

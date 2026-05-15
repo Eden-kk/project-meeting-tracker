@@ -1,8 +1,17 @@
 # Pod deployment handbook
 
-How the production deployment runs on the RunPod pod, how to deploy to
-it, and the failure modes that have actually bitten us — with the fix
-for each. Read this before touching the pod.
+How the production deployment runs on RunPod, how to deploy to it, and
+the failure modes that have actually bitten us — with the fix for each.
+Read this before touching the pods.
+
+> **2-pod topology (post 2026-05-15):** the original single-pod setup
+> (app + Postgres co-located) was lost when the pod's host ran out of
+> RAM during a resume — the database was held hostage with the app.
+> The current topology is **two pods**: a `db-pod` (postgres:16 on a
+> persistent network volume) + an `app-pod` (storage-router + SPA),
+> provisioned via `scripts/runpod-provision.sh`. An app-pod outage no
+> longer endangers data; a new app-pod can be re-bootstrapped against
+> the existing db-pod's volume in ~5 min.
 
 ## 1. Topology
 
@@ -10,25 +19,40 @@ for each. Read this before touching the pod.
                          browser
                             │
                             ▼
-        https://riz0b05s7yg7ab-8050.proxy.runpod.net   (Cloudflare → RunPod proxy)
+        https://<app-pod-id>-8050.proxy.runpod.net   (Cloudflare → RunPod proxy)
                             │
                             ▼
-        storage-router  —  uvicorn 0.0.0.0:8050  (factory: storage_router.api.app:create_app)
-        ├── /              → built SPA from $FRONTEND_DIST
-        ├── /docs          → FastAPI Swagger
-        ├── /api/*         → JSON endpoints
-        │
-        ├── Postgres        127.0.0.1:5432   (internal to the pod)
-        ├── transcript-ingest 127.0.0.1:8011 (uvicorn, same venv)
-        └── voice-ingest    https://hao-ai-lab--voice-ingest-fastapi.modal.run  (Modal, NOT on the pod)
+        ┌─────────────────── app-pod ───────────────────┐
+        │ storage-router uvicorn 0.0.0.0:8050           │
+        │   /          → built SPA from $FRONTEND_DIST  │
+        │   /docs      → FastAPI Swagger                │
+        │   /api/*     → JSON endpoints                 │
+        │                                                │
+        │ transcript-ingest 127.0.0.1:8011 (same venv)  │
+        │ (Zoom bot, when active: Puppeteer + Chrome)   │
+        └────────────────────────────────────────────────┘
+                            │
+                            │ DATABASE_URL → db-pod public IP:port
+                            ▼
+        ┌─────────────────── db-pod ────────────────────┐
+        │ postgres:16  on 0.0.0.0:5432                  │
+        │ data → network volume (survives pod death)    │
+        └────────────────────────────────────────────────┘
+
+        voice-ingest is on Modal, NOT a pod:
+        https://hao-ai-lab--voice-ingest-fastapi.modal.run
 ```
 
-- **The pod is a RunPod host**, SSH-reachable at `root@213.192.2.103:41734`.
-- **App lives at `/workspace/app`** on the pod (a normal git checkout of this repo).
-- **Postgres runs inside the pod** on loopback `127.0.0.1:5432`. It is
-  *not* reachable from outside the pod — see issue #4.
-- **voice-ingest is NOT on the pod** — it is a Modal app. Diarization /
-  Whisper happen there. See `README-voice-ingest.md`.
+- **2 RunPod pods, both SSH-reachable** (exact host:port changes when
+  a pod is created — read `APP_POD_SSH_HOST:APP_POD_SSH_PORT` from
+  `.env.local`).
+- **App lives at `/workspace/app`** on the app-pod (a normal git
+  checkout of this repo).
+- **Postgres runs on the db-pod** at its public ip:port; its `PGDATA`
+  is on a RunPod network volume that survives pod death/recreation.
+  `DATABASE_URL` in `.env.local` on the app-pod points at it.
+- **voice-ingest is NOT on either pod** — it is a Modal app.
+  Diarization / Whisper happen there. See `README-voice-ingest.md`.
 - **Logs:** storage-router → `/var/log/storage-router.log`,
   transcript-ingest → `/var/log/transcript-ingest.log`.
 
@@ -216,7 +240,61 @@ ss -tlnp | grep 8050                                   # uvicorn listening
 tail -20 /var/log/storage-router.log                   # clean "Application startup complete"
 ```
 
-## 6. Pod won't resume / start — `scripts/runpod-recover.sh`
+## 6. Greenfield provision — `make pods-up`
+
+When you need to create the production deployment from scratch (no
+existing pods, e.g. after the 2026-05-15 host-RAM-exhaustion incident
+that nuked the single-pod setup), one command brings both pods up and
+fully bootstraps the app:
+
+```bash
+# .env.local on the workstation needs:
+#   RUNPOD_API_KEY=rpa_...      (https://www.runpod.io/console/user/settings)
+#   OPENAI_API_KEY=...
+#   ANTHROPIC_API_KEY=...
+# Optional: ZOOM_SDK_KEY / ZOOM_SDK_SECRET / ZOOM_OAUTH_CLIENT_ID / ZOOM_OAUTH_CLIENT_SECRET
+
+make pods-up
+```
+
+This runs `scripts/runpod-provision.sh` then `scripts/bootstrap-app-pod.sh`:
+
+1. **Network volume** — 50 GB persistent disk, dc=`US-OR-1` (or override
+   via `RUNPOD_DC`). Survives pod death.
+2. **db-pod** — `postgres:16`, 2 vCPU / 4 GB, volume mounted at
+   `/var/lib/postgresql/data`, port 5432 exposed publicly, password
+   auto-generated and persisted to `.env.local`.
+3. **app-pod** — RunPod's `runpod/base:0.6.2-cpu` (ubuntu + sshd
+   pre-configured), 4 vCPU / 16 GB, 30 GB disk, ports `8050/http` and
+   `22/tcp` exposed, your workstation's SSH pubkey baked in via
+   `PUBLIC_KEY` env.
+4. **Wait for both `RUNNING`** (up to 4 min each).
+5. **Resolve public endpoints** from `/v1/pods/{id}` and write them
+   back to `.env.local` (`APP_POD_SSH_HOST/PORT`, `DB_POD_HOST/PORT`,
+   `DATABASE_URL`).
+6. **SSH into app-pod** and: `apt-get install` python3.12 + node 20 +
+   pnpm + pulseaudio + ffmpeg + postgresql-client; `git clone` the
+   repo; `scp .env.local`; run `bash scripts/deploy.sh`.
+
+Expected wall-clock: ~7–10 min total. Cost: ~$0.14/hr (~$100/mo at
+24×7).
+
+### After `pods-up` returns
+
+- Open `https://<app-pod-id>-8050.proxy.runpod.net/` — should serve
+  the SPA.
+- The handbook's "Quick reference" table (§9) is now stale until you
+  hard-code the new pod IDs into it; pull them from `.env.local`.
+
+### Re-running it
+
+`make pods-up` re-runs are NOT idempotent on the provision side —
+`runpod-provision.sh` always creates fresh pods (cost!). It IS
+idempotent on the bootstrap side — `bootstrap-app-pod.sh` re-runs
+just `git pull` + `scp .env.local` + `scripts/deploy.sh` again.
+For routine re-deploys use `make deploy` on the app-pod, not `pods-up`.
+
+## 7. Pod won't resume / start — `scripts/runpod-recover.sh`
 
 When the RunPod console reports "pod resume failed: not enough free
 memory on the host" (issue #7) or the pod is otherwise stuck in a
