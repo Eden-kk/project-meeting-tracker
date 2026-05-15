@@ -65,29 +65,45 @@ echo "=== [5/7] alembic upgrade head"
 .venv/bin/alembic upgrade head 2>&1 | tail -3
 
 echo "=== [6/7] restart uvicorn on :${APP_PORT}"
+# Env split (load-bearing): SECRETS are inherited from the predecessor
+# process (or .env.local) because they cannot be derived; OPERATIONAL
+# CONFIG is always set deterministically by this script. A previous
+# incident: the predecessor process was missing FRONTEND_DIST, the old
+# version of this script blindly inherited that absence, and the SPA
+# silently 307-redirected to /docs — "unusable". Operational config
+# MUST be deterministic, never inherited.
 OLD_PID="$(ss -tlnp 2>/dev/null | grep ":${APP_PORT} " \
             | grep -oP 'pid=\K[0-9]+' | head -1 || true)"
+: > /tmp/deploy.env.shell
+# --- secrets: inherit from predecessor env, else .env.local ---
 if [ -n "$OLD_PID" ]; then
-  echo "    capturing env from running pid ${OLD_PID}"
-  # Reuse the live process's environment so we don't drift secrets.
+  echo "    inheriting secrets from running pid ${OLD_PID}"
   xargs -0 -n1 -a "/proc/${OLD_PID}/environ" 2>/dev/null \
-    | grep -E '^(DATABASE_URL|OPENAI_API_KEY|ANTHROPIC_API_KEY|LLM_PROVIDER|STORAGE_ROUTER_URL|INGEST_BACKEND|VOICE_INGEST_URL|TRANSCRIPT_INGEST_URL|FRONTEND_DIST|PYTHONPATH|ZOOM_[A-Z_]+)=' \
-    | sed 's/=\(.*\)/="\1"/' > /tmp/deploy.env.shell
+    | grep -E '^(DATABASE_URL|OPENAI_API_KEY|ANTHROPIC_API_KEY|ZOOM_[A-Z_]+)=' \
+    | sed 's/=\(.*\)/="\1"/' >> /tmp/deploy.env.shell
   kill "$OLD_PID"; sleep 3
 else
-  echo "    no running uvicorn — bootstrapping env from .env.local + defaults"
-  {
-    grep -E '^(DATABASE_URL|OPENAI_API_KEY|ANTHROPIC_API_KEY)=' .env.local 2>/dev/null || true
-    echo "LLM_PROVIDER=\"openai\""
-    echo "INGEST_BACKEND=\"real\""
-    echo "VOICE_INGEST_URL=\"https://hao-ai-lab--voice-ingest-fastapi.modal.run\""
-    echo "TRANSCRIPT_INGEST_URL=\"http://127.0.0.1:8011\""
-    echo "STORAGE_ROUTER_URL=\"http://127.0.0.1:${APP_PORT}\""
-    echo "FRONTEND_DIST=\"${APP_DIR}/dist\""
-    echo "PYTHONPATH=\"${APP_DIR}/src\""
-  } > /tmp/deploy.env.shell
+  echo "    no running uvicorn — inheriting secrets from .env.local"
+  grep -E '^(DATABASE_URL|OPENAI_API_KEY|ANTHROPIC_API_KEY|ZOOM_[A-Z_]+)=' \
+    .env.local 2>/dev/null \
+    | sed 's/=\(.*\)/="\1"/' >> /tmp/deploy.env.shell || true
 fi
+# --- operational config: always deterministic, never inherited ---
+{
+  echo "LLM_PROVIDER=\"openai\""
+  echo "INGEST_BACKEND=\"real\""
+  echo "VOICE_INGEST_URL=\"https://hao-ai-lab--voice-ingest-fastapi.modal.run\""
+  echo "TRANSCRIPT_INGEST_URL=\"http://127.0.0.1:8011\""
+  echo "STORAGE_ROUTER_URL=\"http://127.0.0.1:${APP_PORT}\""
+  echo "FRONTEND_DIST=\"${APP_DIR}/dist\""
+  echo "PYTHONPATH=\"${APP_DIR}/src\""
+} >> /tmp/deploy.env.shell
 set -a; . /tmp/deploy.env.shell; set +a
+# Guard: FRONTEND_DIST must point at a real built SPA, else `/` 307s to /docs.
+if [ ! -f "${FRONTEND_DIST}/index.html" ]; then
+  echo "=== deploy FAILED: ${FRONTEND_DIST}/index.html missing — SPA build did not land"
+  exit 1
+fi
 nohup .venv/bin/uvicorn storage_router.api.app:create_app \
   --factory --host 0.0.0.0 --port "${APP_PORT}" \
   >> "$APP_LOG" 2>&1 &
@@ -95,15 +111,19 @@ disown
 sleep 6
 
 echo "=== [7/7] health check"
-if ss -tlnp 2>/dev/null | grep -q ":${APP_PORT} "; then
-  code="$(curl -s -o /dev/null -w '%{http_code}' \
-            "http://127.0.0.1:${APP_PORT}/api/workspaces" --max-time 8 || echo 000)"
-  echo "    uvicorn listening on :${APP_PORT}, /api/workspaces -> ${code}"
-  [ "$code" = "200" ] && echo "=== deploy OK" || {
-    echo "=== deploy WARNING: app up but /api/workspaces returned ${code}"
-    tail -15 "$APP_LOG"; exit 1
-  }
-else
+if ! ss -tlnp 2>/dev/null | grep -q ":${APP_PORT} "; then
   echo "=== deploy FAILED: nothing listening on :${APP_PORT}"
   tail -20 "$APP_LOG"; exit 1
+fi
+base="http://127.0.0.1:${APP_PORT}"
+api_code="$(curl -s -o /dev/null -w '%{http_code}' "${base}/api/workspaces" --max-time 8 || echo 000)"
+# `/` must serve the SPA (200). A 307 here means FRONTEND_DIST is unset
+# and app.py fell back to redirecting to /docs — the "unusable" symptom.
+root_code="$(curl -s -o /dev/null -w '%{http_code}' "${base}/" --max-time 8 || echo 000)"
+echo "    /api/workspaces -> ${api_code}    / -> ${root_code}"
+if [ "$api_code" = "200" ] && [ "$root_code" = "200" ]; then
+  echo "=== deploy OK"
+else
+  echo "=== deploy FAILED: api=${api_code} root=${root_code} (root must be 200 — SPA served, not /docs redirect)"
+  tail -15 "$APP_LOG"; exit 1
 fi
