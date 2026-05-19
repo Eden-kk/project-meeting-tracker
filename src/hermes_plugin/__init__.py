@@ -155,10 +155,30 @@ def meeting_finalization(
                 )
             except Exception:  # noqa: BLE001
                 pass
+        # Replace the extraction skill's `final_text` (a bookkeeping line
+        # like "Created N cards covering …") with a real narrative
+        # summary written from the actual transcript. This mirrors the
+        # chunked path's summary-pass step — without it the SPA's Summary
+        # tab shows the meta line instead of "the team discussed X".
+        try:
+            from .runtime_openai import (
+                _run_openai_summary_pass as _run_openai_summary,
+                _default_openai_client as _openai_client,
+            )
+            narrative = _run_openai_summary(
+                meeting_id=meeting_id,
+                topic_sentences=[],
+                storage_client=storage_client,
+                llm=_openai_client(),
+                model=os.environ.get("OPENAI_MODEL", "gpt-4o-2024-11-20"),
+            )
+            summary_text = narrative or extraction.get("final_text", "")
+        except Exception:  # noqa: BLE001 — never fail finalize over summary
+            summary_text = extraction.get("final_text", "")
         return {
             "cards_created": cards_created,
             "chunks_processed": 1,
-            "summary": extraction.get("final_text", ""),
+            "summary": summary_text,
             "audit": audit_result,
             "consolidation": consolidation_result,
         }
