@@ -24,7 +24,9 @@ test('sidebar exposes the Live entry and the page renders idle controls', async 
   await expect(
     page.getByRole('button', { name: /start meeting/i }),
   ).toBeVisible();
-  await expect(page.getByLabel(/title/i)).toHaveValue('Live meeting');
+  // Slice-5: the ZoomUrlForm also renders a "Meeting title" input; pin
+  // this assertion to the page-level Title field so the two don't collide.
+  await expect(page.getByLabel(/^title$/i)).toHaveValue('Live meeting');
 
   // We don't click "Start meeting" — that triggers getUserMedia, which
   // browsers prompt or reject in headless mode. The unit test covers the

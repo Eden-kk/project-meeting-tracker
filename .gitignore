@@ -25,6 +25,9 @@ playwright-report/
 test-results/
 coverage/
 
+# Zoom-bot npm deps (Wave 9 — bot/ is a sibling project to src/ with its own package.json)
+bot/node_modules/
+
 # Editor / tooling / scratch
 .claude/
 .worktrees/

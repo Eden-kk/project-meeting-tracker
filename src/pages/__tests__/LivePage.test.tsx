@@ -36,7 +36,10 @@ describe('LivePage', () => {
     expect(
       screen.getByRole('button', { name: /start meeting/i }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/title/i)).toHaveValue('Live meeting');
+    // Slice-5: the LivePage now renders a second "Meeting title" field on
+    // the ZoomUrlForm in idle phase. Pin the assertion to the page-level
+    // input by its anchor id so the two don't collide.
+    expect(screen.getByLabelText(/^title$/i)).toHaveValue('Live meeting');
     expect(screen.getByTestId('live-phase')).toHaveTextContent('idle');
   });
 });

@@ -10,6 +10,7 @@ import { useWorkspace } from '../hooks/useWorkspace';
 import { LiveDraftCardsPanel } from '../components/LiveDraftCardsPanel';
 import { SuggestedQuestionsPanel } from '../components/SuggestedQuestionsPanel';
 import { SpeakerRenameDialog } from '../components/SpeakerRenameDialog';
+import { ZoomUrlForm } from '../components/ZoomUrlForm';
 
 type Phase = 'idle' | 'recording' | 'ending' | 'ended' | 'error';
 
@@ -271,6 +272,14 @@ export default function LivePage() {
 
         {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
       </section>
+
+      {/* Wave 9 (zoom-bot): alternative trigger — paste a Zoom URL and
+          dispatch a headless bot to the meeting. The bot streams audio
+          to the same /audio-chunk endpoint the mic flow uses, so the
+          downstream pipeline is identical. */}
+      {phase === 'idle' && (
+        <ZoomUrlForm workspaceId={workspaceId} />
+      )}
 
       {/* Wave 6.3: rolling agent summary, refreshed every ~120s by the
           backend. The same JSON field arrives on every segments-poll

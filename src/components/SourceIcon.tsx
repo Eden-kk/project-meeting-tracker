@@ -6,6 +6,7 @@ const LABELS: Record<StoredMeetingSummary['source_type'], string> = {
   pasted_transcript: 'Pasted',
   live_voice: 'Live voice',
   zoom_rtms: 'Zoom',
+  zoom_bot: 'Zoom (bot)',
 };
 
 const GLYPHS: Record<StoredMeetingSummary['source_type'], string> = {
@@ -14,6 +15,7 @@ const GLYPHS: Record<StoredMeetingSummary['source_type'], string> = {
   pasted_transcript: 'P',
   live_voice: 'L',
   zoom_rtms: 'Z',
+  zoom_bot: 'Z',
 };
 
 export function SourceIcon({ sourceType }: { sourceType: StoredMeetingSummary['source_type'] }) {

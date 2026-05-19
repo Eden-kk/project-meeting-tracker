@@ -49,5 +49,33 @@ class Settings(BaseSettings):
         validation_alias="TRANSCRIPT_INGEST_TIMEOUT_SECONDS",
     )
 
+    # Zoom Marketplace credentials (Wave 9). All default to empty string —
+    # the SPA must continue to load when these are absent. The
+    # zoom_bot_dispatcher._require_zoom_creds() helper raises a
+    # 503-mapped RuntimeError at dispatch / JWT-sign time when any of
+    # the four credentials are missing.
+    zoom_sdk_key: str = Field(default="", validation_alias="ZOOM_SDK_KEY")
+    zoom_sdk_secret: str = Field(default="", validation_alias="ZOOM_SDK_SECRET")
+    zoom_oauth_client_id: str = Field(
+        default="", validation_alias="ZOOM_OAUTH_CLIENT_ID"
+    )
+    zoom_oauth_client_secret: str = Field(
+        default="", validation_alias="ZOOM_OAUTH_CLIENT_SECRET"
+    )
+    # Informational only — the dedicated bot account's email is shown as
+    # the bot's profile/display-name. NOT used for authentication.
+    zoom_bot_account_email: str = Field(
+        default="", validation_alias="ZOOM_BOT_ACCOUNT_EMAIL"
+    )
+    # Cap on concurrent bot subprocesses on this pod.
+    zoom_bot_pool_size: int = Field(
+        default=3, validation_alias="ZOOM_BOT_POOL_SIZE"
+    )
+    # Directory hosting bot.py + zoom-bot.js + zoom-host.html.
+    zoom_bot_dir: Path = Field(
+        default=_ROOT / "bot",
+        validation_alias="ZOOM_BOT_DIR",
+    )
+
 
 settings = Settings()

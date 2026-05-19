@@ -525,6 +525,87 @@ paths:
   # POST /api/hermes/meetings/{id}/finalize
   # ------------------------------------------------------------------------
 
+  /api/zoom-bot/dispatch:
+    post:
+      summary: Dispatch a headless Hermes bot to a Zoom meeting URL.
+      description: |
+        Creates a `MeetingRow` with `source_type='zoom_bot'` and asks the
+        bot dispatcher to spawn a subprocess that joins the Zoom call,
+        captures audio, and uploads chunks to
+        `POST /api/live-meetings/{id}/audio-chunk` (the same endpoint the
+        browser-mic flow uses).
+
+        Returns 503 with `error.code='zoom_creds_missing'` when the four
+        Zoom Marketplace env vars are absent, or `bot_pool_full` when the
+        per-pod cap (`ZOOM_BOT_POOL_SIZE`, default 3) is saturated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspace_id, zoom_url]
+              additionalProperties: false
+              properties:
+                workspace_id: { type: string, minLength: 1, maxLength: 64 }
+                zoom_url: { type: string, minLength: 10, maxLength: 2048 }
+                title: { type: string, maxLength: 200, default: "Zoom meeting" }
+      responses:
+        "201":
+          description: Bot dispatched.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [meeting_id, artifact_id, zoom_meeting_number, status]
+                properties:
+                  meeting_id: { type: string }
+                  artifact_id: { type: string }
+                  zoom_meeting_number: { type: string }
+                  status: { type: string, enum: [live] }
+        "400":
+          description: Could not parse a meeting number from the URL.
+        "503":
+          description: |
+            Either Marketplace credentials are missing
+            (`error.code='zoom_creds_missing'`) or the bot pool is full
+            (`error.code='bot_pool_full'`).
+
+  /api/zoom-bot/sdk-jwt:
+    post:
+      summary: Sign a Meeting SDK JWT (HS256, ZOOM_SDK_SECRET) for the bot.
+      description: |
+        The bot's headless Chromium fetches this JWT before calling
+        `ZoomMtg.join(...)`. The JWT is signed with `ZOOM_SDK_SECRET`
+        ONLY — `ZOOM_OAUTH_CLIENT_SECRET` is reserved for the future
+        user-grant flow and must NEVER sign Meeting SDK JWTs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [meeting_number]
+              additionalProperties: false
+              properties:
+                meeting_number: { type: string, pattern: "^[0-9]+$" }
+                role: { type: integer, enum: [0, 1], default: 0 }
+      responses:
+        "200":
+          description: Fresh signature payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [signature, sdk_key, meeting_number, role]
+                properties:
+                  signature: { type: string }
+                  sdk_key: { type: string }
+                  meeting_number: { type: string }
+                  role: { type: integer }
+        "503":
+          description: Marketplace credentials not configured.
+
 components:
   schemas:
     ImportAccepted:
@@ -607,7 +688,7 @@ components:
         confidence:   { type: number, minimum: 0, maximum: 1, nullable: true }
         source_type:
           type: string
-          enum: [live_voice, zoom_rtms, voice_file, transcript_file, pasted_transcript]
+          enum: [live_voice, zoom_rtms, zoom_bot, voice_file, transcript_file, pasted_transcript]
         is_final:     { type: boolean }
 
     MemoryCard:

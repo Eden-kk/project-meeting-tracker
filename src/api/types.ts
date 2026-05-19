@@ -933,7 +933,7 @@ export interface components {
             text: string;
             confidence?: number | null;
             /** @enum {string} */
-            source_type: "live_voice" | "zoom_rtms" | "voice_file" | "transcript_file" | "pasted_transcript";
+            source_type: "live_voice" | "zoom_rtms" | "zoom_bot" | "voice_file" | "transcript_file" | "pasted_transcript";
             is_final: boolean;
         };
         /** @description Mirrors schemas/memory_card.schema.json (Phase-3; no state, no needs_review). */

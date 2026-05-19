@@ -213,6 +213,40 @@ export async function endLiveMeeting(meetingId: string): Promise<{ status: strin
   return res.data;
 }
 
+export type ZoomBotDispatched = {
+  meeting_id: string;
+  artifact_id: string;
+  zoom_meeting_number: string;
+  status: 'live';
+};
+
+/**
+ * Wave 9 (zoom-bot): POST /api/zoom-bot/dispatch.
+ *
+ * Tells the backend to spawn a headless-Chromium bot that joins the given
+ * Zoom meeting URL as a participant named "Hermes — Note-taking Bot".
+ * Audio chunks land on the same live-ingest endpoint the browser-mic flow
+ * uses, so all four live ticks (summary / extraction / topic-tracker /
+ * interview-questioner) work without any pipeline changes.
+ *
+ * Surfaces three documented 503 cases via Error.message:
+ *   - `zoom_creds_missing` — Marketplace env vars not configured on the pod.
+ *   - `bot_pool_full` — all bot slots busy; try again later.
+ *   - `bot_prereqs_missing` — pulseaudio / ffmpeg / nodejs not on the pod.
+ */
+export async function dispatchZoomBot(args: {
+  workspaceId: string;
+  zoomUrl: string;
+  title?: string;
+}): Promise<ZoomBotDispatched> {
+  const res = await api.post<ZoomBotDispatched>('/api/zoom-bot/dispatch', {
+    workspace_id: args.workspaceId,
+    zoom_url: args.zoomUrl,
+    title: args.title ?? 'Zoom meeting',
+  });
+  return res.data;
+}
+
 /** Wave 8.6: rename a speaker label via PATCH /api/meetings/{id}/speakers. */
 export async function renameLiveSpeaker(
   meetingId: string,
