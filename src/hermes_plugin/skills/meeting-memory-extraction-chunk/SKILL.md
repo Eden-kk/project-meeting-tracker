@@ -51,11 +51,27 @@ your topic sentence.
      segment
 4. Batch multiple `create_draft_memory_card` calls in one assistant
    turn when possible.
-5. End with a single line: a one-sentence topic summary of THIS chunk
-   in plain prose. Do NOT prefix the line with `"Chunk N/M:"` or any
-   other index marker; the downstream `meeting-summary-overall` skill
-   consumes these one-liners as a flat ordered list of beats and the
-   prefix only adds noise.
+5. End with a single line: a one-sentence narrative beat describing
+   **what was discussed in this chunk** — content, not bookkeeping.
+
+   Good (describes the discussion):
+   - "Alice and Bob agreed to move the deadline from Friday to Monday."
+   - "The team debated whether to use Postgres or DynamoDB; Postgres won."
+   - "Carol raised concerns about onboarding latency for new tenants."
+
+   Bad (describes the extraction, not the discussion):
+   - "Created 3 cards covering a decision and two action items."
+   - "Identified two open questions about the rollout."
+   - "Extracted a decision, an action item, and a risk."
+
+   The downstream `meeting-summary-overall` skill stitches these
+   one-liners into a narrative summary the user reads on the Summary
+   tab. If you describe what cards you made, the summary reads as
+   "this meeting was about creating cards" — which is meaningless to
+   the reader. Describe **the meeting**, not your own work.
+
+   Do NOT prefix the line with `"Chunk N/M:"` or any other index
+   marker; the downstream skill consumes these as a flat ordered list.
 
 ## Evidence discipline
 

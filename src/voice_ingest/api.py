@@ -32,6 +32,9 @@ def healthz() -> dict:
 async def transcribe(
     audio: UploadFile = File(...),
     meeting_id: str | None = Form(None),
+    num_speakers: int | None = Form(None),
+    min_speakers: int | None = Form(None),
+    max_speakers: int | None = Form(None),
 ) -> dict:
     suffix = Path(audio.filename or "upload.wav").suffix or ".wav"
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
@@ -45,7 +48,13 @@ async def transcribe(
         tmp.close()
 
         try:
-            return transcribe_voice_file(tmp.name, meeting_id=meeting_id)
+            return transcribe_voice_file(
+                tmp.name,
+                meeting_id=meeting_id,
+                num_speakers=num_speakers,
+                min_speakers=min_speakers,
+                max_speakers=max_speakers,
+            )
         except jsonschema.ValidationError as exc:
             raise HTTPException(500, detail=f"schema validation failed: {exc.message}")
         except (RuntimeError, ValueError, OSError) as exc:

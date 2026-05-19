@@ -80,6 +80,9 @@ def transcribe_voice_file(
     audio_path: str | Path,
     *,
     meeting_id: str | None = None,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
 ) -> dict:
     """Transcribe an audio file and return a NormalizedTranscript dict.
 
@@ -87,6 +90,11 @@ def transcribe_voice_file(
     track is extracted to a temporary WAV first so both faster-whisper and
     pyannote diarization see a clean PCM stream — pyannote's torchaudio
     backend is unreliable on mp4 muxed files.
+
+    `num_speakers` (exact) or `min_speakers`/`max_speakers` (range) are
+    forwarded to pyannote. Pyannote's auto-cluster under-counts on short or
+    code-switched recordings; supplying the known speaker count is the most
+    effective accuracy lever the API exposes.
     """
     path = str(audio_path)
     extracted_wav: str | None = None
@@ -124,10 +132,17 @@ def transcribe_voice_file(
             "is_final": True,
         })
 
+    diarization_error: str | None = None
     try:
-        segments = assign_speakers(path, segments)
+        segments = assign_speakers(
+            path, segments,
+            num_speakers=num_speakers,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
     except Exception as exc:
-        log.warning("diarization failed, single-speaker fallback: %s", exc)
+        diarization_error = f"{type(exc).__name__}: {exc}"
+        log.warning("diarization failed, single-speaker fallback: %s", diarization_error)
 
     result = {
         "meeting_id": meeting_id or f"m_{uuid4().hex[:12]}",

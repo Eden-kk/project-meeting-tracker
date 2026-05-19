@@ -30,13 +30,35 @@ def _get_pipeline():
     return _pipeline
 
 
-def assign_speakers(audio_path: str, segments: list[dict]) -> list[dict]:
+def assign_speakers(
+    audio_path: str,
+    segments: list[dict],
+    *,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> list[dict]:
+    """Overlay pyannote speaker labels on whisper segments.
+
+    `num_speakers` (exact count) or `min_speakers`/`max_speakers` (range) are
+    forwarded to pyannote when the caller knows the speaker count. Pyannote's
+    default auto-clustering can under-count on short recordings, similar
+    voices, or heavy code-switching — the hint forces a specific cluster
+    count and dramatically improves accuracy when the count is known.
+    """
     if not config.HF_TOKEN:
         log.warning("HF_TOKEN unset; skipping diarization (single-speaker fallback)")
         return list(segments)
 
     pipeline = _get_pipeline()
-    diarization = pipeline(audio_path)
+    pipeline_kwargs: dict = {}
+    if num_speakers is not None:
+        pipeline_kwargs["num_speakers"] = int(num_speakers)
+    if min_speakers is not None:
+        pipeline_kwargs["min_speakers"] = int(min_speakers)
+    if max_speakers is not None:
+        pipeline_kwargs["max_speakers"] = int(max_speakers)
+    diarization = pipeline(audio_path, **pipeline_kwargs)
 
     # Collect (start_s, end_s, raw_label) and assign stable speaker_N ids by
     # first appearance.

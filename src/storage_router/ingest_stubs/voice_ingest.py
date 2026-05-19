@@ -10,8 +10,18 @@ from storage_router.models.contracts import NormalizedTranscript, SourceType
 _FIXTURE = Path(__file__).resolve().parents[3] / "fixtures" / "expected_normalized.json"
 
 
-def transcribe_voice_file(path: Path) -> NormalizedTranscript:
-    """Return a canned NormalizedTranscript with source_type=voice_file."""
+def transcribe_voice_file(
+    path: Path,
+    *,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> NormalizedTranscript:
+    """Return a canned NormalizedTranscript with source_type=voice_file.
+
+    Speaker hint kwargs are accepted for signature parity with the HTTP
+    adapter; the stub ignores them since it returns a fixed fixture.
+    """
     with open(_FIXTURE) as f:
         data = json.load(f)
     nt = NormalizedTranscript.model_validate(data)

@@ -115,8 +115,19 @@ def _detect_format(text: str) -> str:
     return "txt"
 
 
-def process_artifact(artifact_id: str) -> None:
-    """Drive the artifact through the state machine. Background-task entry."""
+def process_artifact(
+    artifact_id: str,
+    *,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> None:
+    """Drive the artifact through the state machine. Background-task entry.
+
+    Speaker hints (forwarded to pyannote when the source_type is voice_file)
+    let the caller override pyannote's auto-cluster when the expected count
+    is known — pyannote under-counts on short or code-switched recordings.
+    """
     with SessionLocal() as session:
         artifact = session.get(ConversationArtifactRow, artifact_id)
         if artifact is None:
@@ -134,7 +145,12 @@ def process_artifact(artifact_id: str) -> None:
             if artifact.source_type == "voice_file":
                 storage.update_processing_status(session, artifact_id, "transcribing")
                 session.commit()
-                transcript = transcribe_voice_file(_path_from_file_url(artifact.raw_file_url))
+                transcript = transcribe_voice_file(
+                    _path_from_file_url(artifact.raw_file_url),
+                    num_speakers=num_speakers,
+                    min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                )
                 # Parity with the live path: per-sentence rows, not raw
                 # multi-sentence whisper chunks. See `api/live_route.receive_chunk`.
                 transcript = _split_transcript_per_sentence(transcript)

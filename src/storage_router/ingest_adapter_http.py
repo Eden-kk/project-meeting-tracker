@@ -18,11 +18,22 @@ from storage_router.config import settings
 from storage_router.models.contracts import NormalizedTranscript
 
 
-def transcribe_voice_file(path: Path) -> NormalizedTranscript:
+def transcribe_voice_file(
+    path: Path,
+    *,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> NormalizedTranscript:
     """POST the audio bytes to voice-ingest as multipart; return the parsed transcript.
 
     voice-ingest's API takes a single multipart field named ``audio``
-    (UploadFile) plus an optional ``meeting_id`` form field.
+    (UploadFile) plus optional ``meeting_id`` / ``num_speakers`` /
+    ``min_speakers`` / ``max_speakers`` form fields. The speaker hints
+    forward to pyannote — when the caller knows the expected count,
+    pyannote forces exact clustering and dramatically improves accuracy
+    on short or code-switched recordings where its auto-cluster
+    under-counts.
 
     ``follow_redirects=True``: when voice-ingest is hosted on Modal and a
     request runs longer than Modal's HTTP-sync window (~150 s, common for
@@ -32,11 +43,19 @@ def transcribe_voice_file(path: Path) -> NormalizedTranscript:
     as a 3xx error and the artifact ends up in `failed`.
     """
     url = settings.voice_ingest_url.rstrip("/") + "/voice/transcribe"
+    data: dict[str, str] = {}
+    if num_speakers is not None:
+        data["num_speakers"] = str(int(num_speakers))
+    if min_speakers is not None:
+        data["min_speakers"] = str(int(min_speakers))
+    if max_speakers is not None:
+        data["max_speakers"] = str(int(max_speakers))
     with open(path, "rb") as f:
         files = {"audio": (path.name, f, "audio/webm")}
         resp = httpx.post(
             url,
             files=files,
+            data=data or None,
             timeout=settings.voice_ingest_timeout_seconds,
             follow_redirects=True,
         )
@@ -44,14 +63,26 @@ def transcribe_voice_file(path: Path) -> NormalizedTranscript:
     return NormalizedTranscript.model_validate(resp.json())
 
 
-async def transcribe_voice_file_async(path: Path) -> NormalizedTranscript:
+async def transcribe_voice_file_async(
+    path: Path,
+    *,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> NormalizedTranscript:
     """Async wrapper: runs the blocking httpx.post in a thread so the event
     loop is not stalled during Whisper STT (which can take many seconds).
 
     Callers in async route handlers MUST use this variant so that concurrent
     requests (e.g. a second audio-chunk or /end) are not blocked.
     """
-    return await asyncio.to_thread(transcribe_voice_file, path)
+    return await asyncio.to_thread(
+        transcribe_voice_file,
+        path,
+        num_speakers=num_speakers,
+        min_speakers=min_speakers,
+        max_speakers=max_speakers,
+    )
 
 
 def parse_transcript(

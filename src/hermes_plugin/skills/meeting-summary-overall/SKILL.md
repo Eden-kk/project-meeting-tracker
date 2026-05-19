@@ -70,3 +70,21 @@ nothing worth flagging. Do not write a placeholder.}
   and nothing else.
 - Conflicting beats from different chunks -> describe the conflict in the
   narrative; do not pick a winner.
+- **Card-meta beats in the input** (lines like "Created 3 cards covering
+  …", "Identified 2 open questions", "Extracted a decision and an action
+  item"). These are bugs in the upstream chunk skill — they describe
+  bookkeeping, not the meeting. Strip the meta phrasing and recover any
+  embedded content. "Created 3 cards covering a decision to ship Friday
+  and an action item for Bob" should become "The team decided to ship
+  Friday and Bob took an action item." If a topic sentence is PURELY
+  meta with no recoverable content (e.g. "Created 5 cards covering
+  decisions and action items"), drop it from your narrative — don't
+  echo it back. Never write a TL;DR or What-we-covered section that
+  talks about how many cards were created; the user cannot see that
+  and does not care.
+- **Refusal JSON / text in the input** (lines like
+  `{"refused": true, "reason": "transcript_too_large"}` or English
+  refusal text like "The transcript is over 100,000 tokens"). These
+  are the upstream chunk skill failing. Treat them as missing beats —
+  do not echo them in your output. If ALL chunks produced refusals,
+  fall back to the empty-content failure mode above.

@@ -36,6 +36,9 @@ async def import_conversation(
     voice_file: UploadFile | None = File(None),
     transcript_file: UploadFile | None = File(None),
     pasted_transcript: str | None = Form(None),
+    num_speakers: int | None = Form(None),
+    min_speakers: int | None = Form(None),
+    max_speakers: int | None = Form(None),
 ):
     voice_p = _upload_present(voice_file)
     txt_p = _upload_present(transcript_file)
@@ -107,7 +110,13 @@ async def import_conversation(
     # own session and must observe the rows.
     from storage_router.dispatcher import process_artifact
 
-    background_tasks.add_task(process_artifact, artifact_id)
+    background_tasks.add_task(
+        process_artifact,
+        artifact_id,
+        num_speakers=num_speakers,
+        min_speakers=min_speakers,
+        max_speakers=max_speakers,
+    )
 
     return {
         "artifact_id": artifact_id,
