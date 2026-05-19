@@ -588,7 +588,13 @@ def run_chunked_extraction_openai(
         if final_text:
             topic_sentences.append(_strip_chunk_prefix(final_text.strip()))
 
-    summary = _run_openai_summary_pass(topic_sentences=topic_sentences, llm=llm, model=model)
+    summary = _run_openai_summary_pass(
+        meeting_id=meeting_id,
+        topic_sentences=topic_sentences,
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
+    )
     return {
         "cards_created": total_cards,
         "chunks_processed": chunks_processed,
@@ -606,25 +612,66 @@ def _strip_chunk_prefix(line: str) -> str:
     return _CHUNK_PREFIX_RE.sub("", line).strip()
 
 
+_SUMMARY_TRANSCRIPT_CHAR_BUDGET = 80_000
+
+
+def _format_transcript_for_summary(segments: list[dict]) -> str:
+    """Render transcript segments into `[mm:ss spkr] text` lines.
+
+    Speaker uses ``speaker_name`` when set (post-rename), falls back to
+    ``speaker_id`` so diarization labels are still visible.
+    """
+    out: list[str] = []
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        start_ms = int(seg.get("start_ms") or 0)
+        total_s = start_ms // 1000
+        mm = total_s // 60
+        ss = total_s % 60
+        speaker = (
+            seg.get("speaker_name")
+            or seg.get("speaker_id")
+            or "speaker_?"
+        )
+        out.append(f"[{mm:02d}:{ss:02d} {speaker}] {text}")
+    return "\n".join(out)
+
+
 def _run_openai_summary_pass(
     *,
+    meeting_id: str,
     topic_sentences: list[str],
+    storage_client: StorageRouterClient,
     llm: Any,
     model: str,
 ) -> str:
-    """Single-shot OpenAI consolidation of per-chunk topic sentences into the
-    SPA Summary tab's narrative markdown. Mirrors `runtime._run_summary_pass`.
-    Returns the markdown text; empty on no input.
+    """Single-shot OpenAI summary pass. Reads the actual transcript via
+    `client.get_meeting_transcript` and writes a narrative summary from
+    real content. Falls back to `topic_sentences` if the transcript
+    fetch fails or exceeds the char budget. Mirrors
+    `runtime._run_summary_pass`.
     """
-    if not topic_sentences:
-        return ""
     system = _load_skill("meeting-summary-overall")
-    bootstrap = "\n".join(topic_sentences)
+    user_text = ""
+    try:
+        transcript = storage_client.get_meeting_transcript(meeting_id)
+        segments = transcript.get("segments") or []
+        formatted = _format_transcript_for_summary(segments)
+        if formatted and len(formatted) <= _SUMMARY_TRANSCRIPT_CHAR_BUDGET:
+            user_text = formatted
+    except Exception:  # noqa: BLE001 — fall back to topic_sentences below
+        pass
+    if not user_text:
+        if not topic_sentences:
+            return ""
+        user_text = "\n".join(topic_sentences)
     response = llm.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system},
-            {"role": "user", "content": bootstrap},
+            {"role": "user", "content": user_text},
         ],
         max_tokens=1024,
     )

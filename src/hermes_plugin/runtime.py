@@ -680,21 +680,70 @@ def run_card_consolidation(
     }
 
 
+# Char budget for the formatted transcript passed to the summary skill.
+# 80 000 chars ≈ 20 000 tokens; well within both Claude and GPT-4o context
+# limits while leaving headroom for the system prompt + output.
+_SUMMARY_TRANSCRIPT_CHAR_BUDGET = 80_000
+
+
+def _format_transcript_for_summary(segments: list[dict]) -> str:
+    """Render transcript segments into `[mm:ss spkr] text` lines.
+
+    Speaker uses ``speaker_name`` when set (post-rename), falls back to
+    ``speaker_id`` so diarization labels are still visible.
+    """
+    out: list[str] = []
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        start_ms = int(seg.get("start_ms") or 0)
+        total_s = start_ms // 1000
+        mm = total_s // 60
+        ss = total_s % 60
+        speaker = (
+            seg.get("speaker_name")
+            or seg.get("speaker_id")
+            or "speaker_?"
+        )
+        out.append(f"[{mm:02d}:{ss:02d} {speaker}] {text}")
+    return "\n".join(out)
+
+
 def _run_summary_pass(
     *,
+    meeting_id: str,
     topic_sentences: list[str],
+    storage_client: StorageRouterClient,
     llm: Any,
     model: str,
 ) -> str:
-    """One Claude call with no tools that consolidates topic sentences."""
-    if not topic_sentences:
-        return ""
+    """One Claude call that writes a narrative summary from the actual
+    transcript. ``topic_sentences`` is kept as a fallback for the rare
+    case where the transcript fetch fails or the transcript exceeds the
+    char budget."""
     system = _load_skill("meeting-summary-overall")
-    bootstrap = "\n".join(topic_sentences)
+    user_text = ""
+    try:
+        transcript = storage_client.get_meeting_transcript(meeting_id)
+        segments = transcript.get("segments") or []
+        formatted = _format_transcript_for_summary(segments)
+        if formatted and len(formatted) <= _SUMMARY_TRANSCRIPT_CHAR_BUDGET:
+            user_text = formatted
+    except Exception:  # noqa: BLE001 — fall back to topic_sentences below
+        logger.exception(
+            "summary_pass.transcript_fetch_failed",
+            extra={"meeting_id": meeting_id},
+        )
+    if not user_text:
+        if not topic_sentences:
+            return ""
+        # Fallback path — transcript missing or too large for one call.
+        user_text = "\n".join(topic_sentences)
     msg = llm.messages.create(
         model=model,
         system=system,
-        messages=[{"role": "user", "content": bootstrap}],
+        messages=[{"role": "user", "content": user_text}],
         max_tokens=1024,
     )
     return _final_text(msg)
@@ -772,7 +821,11 @@ def run_chunked_extraction(
             topic_sentences.append(_strip_chunk_prefix(final_text.strip()))
 
     summary = _run_summary_pass(
-        topic_sentences=topic_sentences, llm=llm, model=model
+        meeting_id=meeting_id,
+        topic_sentences=topic_sentences,
+        storage_client=storage_client,
+        llm=llm,
+        model=model,
     )
 
     # Wave 2.1 + 2.2: agent quality passes run AFTER extraction. They

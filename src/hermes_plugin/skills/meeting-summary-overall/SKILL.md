@@ -19,9 +19,26 @@ ignores any `tool_use` blocks for this skill.
 
 ## Input
 
-The user message is the per-chunk topic sentences, one per line. They
-are NOT prefixed with `"Chunk N/M:"` — treat them as a flat ordered list
-of beats from the meeting.
+The user message is the meeting transcript, one segment per line, in
+the form:
+
+```
+[mm:ss speaker_label] segment text
+```
+
+`speaker_label` is either a person's name (after rename) or a
+diarization id like `speaker_1`. Treat the lines as the source-of-truth
+record of what was actually said and write your summary from that
+content — do NOT summarise by counting speakers, segments, or
+bookkeeping; only the discussion itself matters.
+
+When the input is empty (no segments at all) or contains only filler
+("um", "yeah", "ok"), use the empty-content failure mode below.
+
+In rare cases the runtime falls back to a flat list of per-chunk topic
+sentences (one per line, no timestamps or speaker labels) — for example
+when the transcript is too long to fit in one call. Handle that input
+the same way: distill it into the narrative shape below.
 
 ## Output contract
 
@@ -54,37 +71,29 @@ nothing worth flagging. Do not write a placeholder.}
 
 - Markdown headings only (`##`). Do not use `###` or deeper. Do not use
   `#` (the SPA renders the meeting title separately).
-- Use names for people whenever the topic sentences provide them; never
-  invent attendee names.
+- Use names for people whenever the transcript provides them; never
+  invent attendee names. If only diarization ids are available
+  (`speaker_1`, `speaker_2`), refer to participants generically ("one
+  participant", "another speaker", "the group") rather than echoing the
+  raw ids.
 - Use plain English. No unexplained acronyms unless they appear in the
-  topic sentences themselves.
-- Favor clarity over completeness — if the topic sentences don't cover
+  transcript itself.
+- Favor clarity over completeness — if the transcript doesn't cover
   something, don't speculate.
 - The total summary length should be roughly 150-300 words. Tighter is
   better.
+- The transcript is the source of truth. Do NOT mention anything about
+  cards, extraction, chunks, segments, or any internal pipeline
+  bookkeeping; the user cannot see those and does not care.
 
 ## Failure modes
 
-- Empty / "no findings" topic sentences only -> return exactly:
+- Empty / silence / filler-only transcript -> return exactly:
   `## TL;DR\nMeeting had no extractable content (silence, small talk, or recording gap).`
   and nothing else.
-- Conflicting beats from different chunks -> describe the conflict in the
-  narrative; do not pick a winner.
-- **Card-meta beats in the input** (lines like "Created 3 cards covering
-  …", "Identified 2 open questions", "Extracted a decision and an action
-  item"). These are bugs in the upstream chunk skill — they describe
-  bookkeeping, not the meeting. Strip the meta phrasing and recover any
-  embedded content. "Created 3 cards covering a decision to ship Friday
-  and an action item for Bob" should become "The team decided to ship
-  Friday and Bob took an action item." If a topic sentence is PURELY
-  meta with no recoverable content (e.g. "Created 5 cards covering
-  decisions and action items"), drop it from your narrative — don't
-  echo it back. Never write a TL;DR or What-we-covered section that
-  talks about how many cards were created; the user cannot see that
-  and does not care.
-- **Refusal JSON / text in the input** (lines like
-  `{"refused": true, "reason": "transcript_too_large"}` or English
-  refusal text like "The transcript is over 100,000 tokens"). These
-  are the upstream chunk skill failing. Treat them as missing beats —
-  do not echo them in your output. If ALL chunks produced refusals,
-  fall back to the empty-content failure mode above.
+- Conflicting statements from different speakers -> describe the
+  conflict in the narrative; do not pick a winner.
+- Code-switched / multilingual transcript -> write the summary in the
+  dominant language of the transcript. If both languages are roughly
+  balanced, write in English and quote short fragments in the original
+  language where they carry meaning.
