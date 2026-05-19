@@ -523,7 +523,7 @@ def search_segments_fts(
               JOIN meetings m ON m.id = s.meeting_id AND m.deleted_at IS NULL
               JOIN conversation_artifacts a ON a.id = m.artifact_id
              WHERE a.workspace_id = :ws
-             ORDER BY m.created_at DESC NULLS LAST,
+             ORDER BY a.created_at DESC NULLS LAST,
                       s.start_ms NULLS LAST,
                       s.id
              LIMIT :lim OFFSET :off

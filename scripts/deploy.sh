@@ -46,14 +46,26 @@ echo "=== [2/7] repair broken venv / node_modules symlinks"
 [ -L node_modules ] && rm -f node_modules
 
 echo "=== [3/7] python venv + deps"
+# storage-router (main venv): hermes runtime deps live in [project].dependencies,
+# so `pip install -e .[dev]` pulls everything needed at runtime.
 if [ ! -x .venv/bin/python ]; then
   python3.12 -m venv .venv
   .venv/bin/pip install --quiet --upgrade pip
 fi
 .venv/bin/pip install --quiet -e '.[dev]'
-# Sanity: the in-process hermes deps must import.
 .venv/bin/python -c 'import openai, anthropic, yaml, httpx' \
-  && echo "    hermes runtime deps OK"
+  && echo "    storage-router hermes deps OK"
+# transcript-ingest gets its OWN venv. requirements-transcript.txt pins
+# different versions of uvicorn / python-multipart than storage-router, so
+# sharing one venv lets a `pip install -r requirements-transcript.txt`
+# poison the storage-router deps on re-runs.
+if [ ! -x .venv-transcript/bin/python ]; then
+  python3.12 -m venv .venv-transcript
+  .venv-transcript/bin/pip install --quiet --upgrade pip
+fi
+.venv-transcript/bin/pip install --quiet -r requirements-transcript.txt
+.venv-transcript/bin/python -c 'import webvtt, srt' \
+  && echo "    transcript-ingest deps OK"
 
 echo "=== [4/7] frontend build"
 pnpm install --silent
@@ -110,10 +122,29 @@ nohup .venv/bin/uvicorn storage_router.api.app:create_app \
 disown
 sleep 6
 
+# Restart transcript-ingest on 127.0.0.1:8011 from its dedicated venv. The
+# storage-router calls into it over HTTP; without it /api/conversations/import
+# of a transcript file 5xx's with httpx.ConnectError. Idempotent: kill old,
+# start new.
+echo "    (re)start transcript-ingest on 127.0.0.1:8011"
+TRANSCRIPT_LOG="${TRANSCRIPT_LOG:-/var/log/transcript-ingest.log}"
+OLD_T_PID="$(ss -tlnp 2>/dev/null | grep ':8011 ' | grep -oP 'pid=\K[0-9]+' | head -1 || true)"
+[ -n "$OLD_T_PID" ] && { kill "$OLD_T_PID" 2>/dev/null; sleep 2; }
+PYTHONPATH="${APP_DIR}/src" \
+  nohup .venv-transcript/bin/uvicorn transcript_ingest.api:app \
+    --host 127.0.0.1 --port 8011 \
+    >> "$TRANSCRIPT_LOG" 2>&1 &
+disown
+sleep 4
+
 echo "=== [7/7] health check"
 if ! ss -tlnp 2>/dev/null | grep -q ":${APP_PORT} "; then
   echo "=== deploy FAILED: nothing listening on :${APP_PORT}"
   tail -20 "$APP_LOG"; exit 1
+fi
+if ! ss -tlnp 2>/dev/null | grep -q ':8011 '; then
+  echo "=== deploy WARNING: transcript-ingest not listening on :8011"
+  tail -10 "$TRANSCRIPT_LOG" 2>/dev/null
 fi
 base="http://127.0.0.1:${APP_PORT}"
 api_code="$(curl -s -o /dev/null -w '%{http_code}' "${base}/api/workspaces" --max-time 8 || echo 000)"
