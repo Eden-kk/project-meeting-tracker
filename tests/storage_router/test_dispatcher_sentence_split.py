@@ -157,8 +157,10 @@ def test_process_artifact_persists_per_sentence_rows(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
     # 1) Replace the voice-ingest call with our synthetic whisper output.
+    # Accept the **kw to absorb the num_speakers/min_speakers/max_speakers
+    # hints the dispatcher now forwards.
     monkeypatch.setattr(
-        dispatcher, "transcribe_voice_file", lambda _p: raw_transcript
+        dispatcher, "transcribe_voice_file", lambda _p, **_kw: raw_transcript
     )
     # 2) Capture what the dispatcher actually tries to persist.
     def _capture(_session, meeting_id: str, transcript: NormalizedTranscript) -> None:
@@ -265,3 +267,72 @@ def test_process_artifact_persists_per_sentence_rows(monkeypatch) -> None:
 )
 async def test_http_import_writes_per_sentence_rows() -> None:  # pragma: no cover
     """Placeholder: covered by the unit test above + the pod's e2e run."""
+
+
+# ---------------------------------------------------------------------------
+# _force_split_oversized — char-length safety net
+# ---------------------------------------------------------------------------
+
+
+def test_force_split_short_segment_passes_through() -> None:
+    """Sentences ≤ _MAX_SEG_CHARS are returned unchanged."""
+    out = dispatcher._force_split_oversized("hello world", 0, 1000)
+    assert out == [("hello world", 0, 1000)]
+
+
+def test_force_split_long_segment_cuts_at_whitespace() -> None:
+    """A 5000-char block of word-separated text gets sliced at spaces near
+    the 2000-char boundary, with timing distributed proportionally."""
+    text = ("word " * 1000).strip()  # 4999 chars, spaces every 5
+    out = dispatcher._force_split_oversized(text, 0, 10_000)
+    # Expect at least 3 pieces (≤2000 each).
+    assert len(out) >= 3
+    assert all(len(p[0]) <= dispatcher._MAX_SEG_CHARS for p in out)
+    # Cuts must be on word boundaries: no piece starts mid-word.
+    for piece_text, _, _ in out:
+        assert not piece_text.startswith(" ")
+        assert piece_text.startswith("word")
+    # Timing must be monotonic and span the full window end-to-end.
+    starts = [p[1] for p in out]
+    ends = [p[2] for p in out]
+    assert starts == sorted(starts)
+    assert ends[-1] == 10_000
+
+
+def test_force_split_no_whitespace_falls_back_to_hard_cut() -> None:
+    """Continuous CJK-style text with no whitespace hard-splits at exactly
+    _MAX_SEG_CHARS (the failure mode that hit sync-0518)."""
+    text = "字" * 5000  # 5000 contiguous chars, no whitespace
+    out = dispatcher._force_split_oversized(text, 0, 5000)
+    # 5000 / 2000 = at least 3 pieces.
+    assert len(out) >= 3
+    assert all(len(p[0]) <= dispatcher._MAX_SEG_CHARS for p in out)
+    # Pieces concatenate back to the original.
+    assert "".join(p[0] for p in out) == text
+
+
+def test_split_transcript_force_splits_monolithic_segment() -> None:
+    """The full pipeline: a single whisper segment with no terminal punct
+    that exceeds _MAX_SEG_CHARS gets force-split into many rows."""
+    monolith = ("看看老戴的demo,这是一个测试 " * 800).strip()  # ~16k chars, no terminator
+    transcript = NormalizedTranscript(
+        meeting_id="m_force",
+        segments=[
+            SpeakerSegment(
+                segment_id="seg_000",
+                speaker_id="speaker_1",
+                speaker_name=None,
+                start_ms=0,
+                end_ms=600_000,
+                text=monolith,
+                confidence=0.9,
+                source_type=SourceType.voice_file,
+                is_final=True,
+            )
+        ],
+    )
+    out = dispatcher._split_transcript_per_sentence(transcript)
+    assert len(out.segments) >= 5, "single 16k-char segment must produce many rows"
+    assert all(len(s.text) <= dispatcher._MAX_SEG_CHARS for s in out.segments)
+    # Speaker preserved across all sub-pieces.
+    assert all(s.speaker_id == "speaker_1" for s in out.segments)

@@ -25,6 +25,66 @@ except Exception:  # pragma: no cover — only the import path matters
         DEFAULT_PUNCT_MAX_WAIT_MS as _PUNCT_MAX_WAIT_MS,
     )
 
+# Hard ceiling on any single emitted segment. SentenceBuffer normally splits
+# on terminal punctuation; on inputs without it (CJK transcripts using ASCII
+# commas, no `。！？`, continuous speech with no >500 ms gaps for whisper
+# VAD), force-flush emits the whole fragment as one segment. Downstream
+# chunked-extraction packs whole segments into LLM calls, so a single
+# 13k-char monolith forms one indivisible chunk and reliably triggers
+# refusal-style hallucinations ("transcript_too_large") from GPT/Claude.
+# This ceiling prevents that: any sentence longer than _MAX_SEG_CHARS is
+# hard-split at the nearest whitespace, so the chunker always sees
+# manageable pieces.
+_MAX_SEG_CHARS = 2000
+
+
+def _force_split_oversized(
+    text: str, start_ms: int, end_ms: int, max_chars: int = _MAX_SEG_CHARS,
+) -> list[tuple[str, int, int]]:
+    """Split a too-long sentence at whitespace near each max_chars boundary.
+
+    Falls back to a hard split at exactly max_chars if no whitespace is
+    found within max_chars/2 of the target boundary. Distributes timing
+    proportionally by character offset — approximate but better than
+    collapsing every piece to (start_ms, end_ms).
+
+    Returns a list of (chunk_text, chunk_start_ms, chunk_end_ms) tuples.
+    A sentence shorter than max_chars passes through unchanged.
+    """
+    total = len(text)
+    if total <= max_chars:
+        return [(text, start_ms, end_ms)]
+    span_ms = max(0, end_ms - start_ms)
+    out: list[tuple[str, int, int]] = []
+    pos = 0
+    while pos < total:
+        if total - pos <= max_chars:
+            piece = text[pos:]
+            piece_start_ms = start_ms + (pos * span_ms // total)
+            out.append((piece, piece_start_ms, end_ms))
+            break
+        # Look for the last whitespace within the window
+        # [pos + max_chars//2, pos + max_chars]; if none, hard-split at
+        # pos + max_chars.
+        window_end = pos + max_chars
+        window_start = pos + max_chars // 2
+        cut = -1
+        for i in range(window_end, window_start, -1):
+            if i < total and text[i].isspace():
+                cut = i
+                break
+        if cut == -1:
+            cut = window_end
+        piece = text[pos:cut].rstrip()
+        piece_start_ms = start_ms + (pos * span_ms // total)
+        piece_end_ms = start_ms + (cut * span_ms // total)
+        if piece:
+            out.append((piece, piece_start_ms, piece_end_ms))
+        pos = cut
+        while pos < total and text[pos].isspace():
+            pos += 1
+    return out
+
 
 def _split_transcript_per_sentence(
     transcript: NormalizedTranscript,
@@ -73,20 +133,25 @@ def _split_transcript_per_sentence(
             )
         emitted = list(buf.feed(feed))
         emitted.extend(buf.flush())
-        for idx, sentence in enumerate(emitted):
-            new_segments.append(
-                SpeakerSegment(
-                    segment_id=f"{template.segment_id}-s{idx}",
-                    speaker_id=template.speaker_id,
-                    speaker_name=template.speaker_name,
-                    start_ms=sentence.start_ms,
-                    end_ms=sentence.end_ms,
-                    text=sentence.text,
-                    confidence=template.confidence,
-                    source_type=template.source_type,
-                    is_final=template.is_final,
+        sub_idx = 0
+        for sentence in emitted:
+            for piece_text, piece_start_ms, piece_end_ms in _force_split_oversized(
+                sentence.text, sentence.start_ms, sentence.end_ms
+            ):
+                new_segments.append(
+                    SpeakerSegment(
+                        segment_id=f"{template.segment_id}-s{sub_idx}",
+                        speaker_id=template.speaker_id,
+                        speaker_name=template.speaker_name,
+                        start_ms=piece_start_ms,
+                        end_ms=piece_end_ms,
+                        text=piece_text,
+                        confidence=template.confidence,
+                        source_type=template.source_type,
+                        is_final=template.is_final,
+                    )
                 )
-            )
+                sub_idx += 1
 
     for seg in transcript.segments:
         key = (seg.speaker_id, seg.speaker_name)
