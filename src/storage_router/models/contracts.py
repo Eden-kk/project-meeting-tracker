@@ -241,7 +241,11 @@ class MemoryCard(BaseModel):
     type: MemoryCardType
     title: str = Field(..., max_length=500, min_length=1)
     content: str
-    source_chunk_ids: list[str] = Field(..., min_length=1)
+    # May be empty: manually-added or notes-gapfill cards have no source
+    # chunk. The write path already permits an empty list, so the read
+    # model must too — a min_length=1 here 500s the card-list endpoints
+    # for any such card.
+    source_chunk_ids: list[str] = Field(default_factory=list)
     source_start_ms: int | None = Field(None, ge=0)
     source_end_ms: int | None = Field(None, ge=0)
     speakers_json: list[str] | None = Field(
