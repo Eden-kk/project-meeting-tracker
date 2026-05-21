@@ -710,6 +710,27 @@ def _format_transcript_for_summary(segments: list[dict]) -> str:
     return "\n".join(out)
 
 
+def _strip_wrapping_fence(text: str) -> str:
+    """Drop a triple-backtick code fence wrapping the whole summary.
+
+    The summary skill asks for raw markdown with no fenced code block,
+    but the model sometimes wraps the entire output in ```` ``` ```` (or
+    ```` ```markdown ````). The SPA then renders a literal code block
+    instead of formatted markdown. Strip a single wrapping fence; leave
+    fences in the interior untouched.
+    """
+    t = text.strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    # Opening fence line (``` or ```lang).
+    lines = lines[1:]
+    # Closing fence line, if present.
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
 def _run_summary_pass(
     *,
     meeting_id: str,
@@ -746,7 +767,7 @@ def _run_summary_pass(
         messages=[{"role": "user", "content": user_text}],
         max_tokens=1024,
     )
-    return _final_text(msg)
+    return _strip_wrapping_fence(_final_text(msg))
 
 
 def run_chunked_extraction(

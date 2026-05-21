@@ -615,6 +615,25 @@ def _strip_chunk_prefix(line: str) -> str:
 _SUMMARY_TRANSCRIPT_CHAR_BUDGET = 80_000
 
 
+def _strip_wrapping_fence(text: str) -> str:
+    """Drop a triple-backtick code fence wrapping the whole summary.
+
+    The summary skill asks for raw markdown with no fenced code block,
+    but the model sometimes wraps the entire output in ```` ``` ```` (or
+    ```` ```markdown ````). The SPA then renders a literal code block
+    instead of formatted markdown. Strip a single wrapping fence; leave
+    fences in the interior untouched.
+    """
+    t = text.strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
 def _format_transcript_for_summary(segments: list[dict]) -> str:
     """Render transcript segments into `[mm:ss spkr] text` lines.
 
@@ -676,7 +695,7 @@ def _run_openai_summary_pass(
         max_tokens=1024,
     )
     text = (response.choices[0].message.content or "").strip()
-    return text
+    return _strip_wrapping_fence(text)
 
 
 __all__ = ["run_skill", "run_chunked_extraction_openai", "_SINGLE_PASS_CHAR_LIMIT"]
