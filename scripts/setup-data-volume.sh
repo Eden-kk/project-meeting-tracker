@@ -25,12 +25,11 @@
 set -euo pipefail
 
 DATA_DIR="${DATA_DIR:-/data}"
-PG_VERSION="${PG_VERSION:-16}"
 PG_PORT="${PG_PORT:-5432}"
 PGDATA="${DATA_DIR}/pgdata"
 BLOB_DIR="${DATA_DIR}/blobs"
-PGBIN="/usr/lib/postgresql/${PG_VERSION}/bin"
 PGPASS_FILE="${DATA_DIR}/.pgpass_tracker"
+PGVERSION_FILE="${DATA_DIR}/.pgversion"
 
 echo "=== setup-data-volume: DATA_DIR=${DATA_DIR} PGDATA=${PGDATA}"
 
@@ -41,25 +40,58 @@ if ! mountpoint -q "$DATA_DIR" 2>/dev/null && [ ! -d "$DATA_DIR" ]; then
 fi
 mkdir -p "$DATA_DIR"
 
-# --- 1. install postgres server if absent ---------------------------------
+# --- 1. resolve + install postgres ----------------------------------------
+# A cluster on disk is tied to one major version, so the version is PINNED
+# on the volume (.pgversion) the first time and reused on every reattach.
+# Fresh volume: prefer $PG_VERSION (default 16) via the PGDG repo; if PGDG
+# is unreachable, fall back to the newest PostgreSQL in the base repos
+# (PG12 on Ubuntu focal). Either way the data is durable on the volume.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q || true
+
+pg_available() { apt-cache show "postgresql-$1" >/dev/null 2>&1; }
+
+add_pgdg() {
+  echo "    adding PGDG apt repo"
+  apt-get install -y -q curl ca-certificates lsb-release gnupg >/dev/null 2>&1 || true
+  install -d /usr/share/postgresql-common/pgdg
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc 2>/dev/null || return 1
+  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list
+  apt-get update -q 2>/dev/null || true
+}
+
+newest_available() {
+  # Highest postgresql-NN currently installable, by apt-cache search.
+  apt-cache search '^postgresql-[0-9]+$' 2>/dev/null \
+    | grep -oE 'postgresql-[0-9]+' | grep -oE '[0-9]+$' | sort -n | tail -1
+}
+
+if [ -s "$PGVERSION_FILE" ]; then
+  PG_VERSION="$(cat "$PGVERSION_FILE")"
+  echo "    volume pins PostgreSQL ${PG_VERSION} (reattach)"
+else
+  PG_VERSION="${PG_VERSION:-16}"
+fi
+
+PGBIN="/usr/lib/postgresql/${PG_VERSION}/bin"
 if [ ! -x "${PGBIN}/initdb" ]; then
-  echo "=== installing postgresql-${PG_VERSION}"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -q
-  # Ubuntu focal's default repos only ship PostgreSQL 12. Add the official
-  # PGDG apt repo so postgresql-16 is available on any base image.
-  if ! apt-cache show "postgresql-${PG_VERSION}" >/dev/null 2>&1; then
-    echo "    postgresql-${PG_VERSION} not in default repos — adding PGDG"
-    apt-get install -y -q curl ca-certificates lsb-release gnupg
-    install -d /usr/share/postgresql-common/pgdg
-    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-      > /etc/apt/sources.list.d/pgdg.list
-    apt-get update -q
+  if ! pg_available "$PG_VERSION"; then
+    add_pgdg || true
   fi
+  if ! pg_available "$PG_VERSION"; then
+    fallback="$(newest_available)"
+    if [ -n "$fallback" ]; then
+      echo "    postgresql-${PG_VERSION} unavailable; falling back to postgresql-${fallback}"
+      PG_VERSION="$fallback"
+      PGBIN="/usr/lib/postgresql/${PG_VERSION}/bin"
+    fi
+  fi
+  echo "=== installing postgresql-${PG_VERSION}"
   apt-get install -y -q "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
 fi
+[ -x "${PGBIN}/initdb" ] || { echo "FATAL: no usable postgresql install (${PGBIN})" >&2; exit 1; }
 
 # --- 2. resolve the password ----------------------------------------------
 # .env.local / DATABASE_URL is the source of truth for the app, so a
@@ -87,6 +119,9 @@ if [ ! -s "${PGDATA}/PG_VERSION" ]; then
   chmod 700 "$PGDATA"
   su postgres -c "${PGBIN}/initdb -D '${PGDATA}' --encoding=UTF8 --locale=C.UTF-8"
   FRESH_INIT=1
+  # Pin the major version on the volume so every future reattach installs
+  # the matching binary (a cluster can't be opened by a different major).
+  printf '%s' "$PG_VERSION" > "$PGVERSION_FILE"
   # Listen on localhost only; the app talks to it over 127.0.0.1.
   {
     echo "listen_addresses = '127.0.0.1'"
