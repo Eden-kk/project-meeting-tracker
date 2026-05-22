@@ -115,6 +115,9 @@ umask 077; printf '%s' "$PG_PASSWORD" > "$PGPASS_FILE"; chmod 600 "$PGPASS_FILE"
 # widen the table to VARCHAR(255) so migrations can record their revision.
 psql_su "-d tracker -v ON_ERROR_STOP=1 -c \"CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(255) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))\"" || true
 psql_su "-d tracker -c \"ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)\"" || true
+# We created it as the postgres superuser, so hand ownership to the app
+# role or alembic (connecting as tracker) gets "permission denied".
+psql_su "-d tracker -c \"ALTER TABLE alembic_version OWNER TO tracker\"" || true
 
 # --- 6. restore from newest volume snapshot if the DB is empty ------------
 # "Empty" = no `meetings` table yet. A fresh local cluster on a recreated
