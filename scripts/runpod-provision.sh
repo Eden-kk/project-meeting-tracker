@@ -153,19 +153,33 @@ done
   || { echo "FAILED: app-pod not RUNNING after 4min"; exit 1; }
 
 echo "=== [3/4] resolve app SSH endpoint"
-APP_INFO=$(api GET "/pods/$APP_POD_ID")
-resolve() {
-  echo "$1" | python3 -c "
+# Port mappings show up in the top-level `portMappings` map ({"22": 37405})
+# with the host in `publicIp`. `runtime.ports` is often empty even when the
+# mapping exists, so prefer portMappings + publicIp and only fall back to
+# runtime.ports. Mappings can lag RUNNING by ~30-60s, so poll.
+resolve_ssh() {
+  api GET "/pods/$APP_POD_ID" | python3 -c "
 import json,sys
 d = json.load(sys.stdin)
-for p in (d.get('runtime') or {}).get('ports') or []:
-    if int(p.get('privatePort',0)) == int($2):
-        print(f\"{p.get('ip','')} {p.get('publicPort','')}\"); break
+ip = d.get('publicIp') or ''
+pm = d.get('portMappings') or {}
+port = pm.get('22') or pm.get(22) or ''
+if not port:
+    for p in (d.get('runtime') or {}).get('ports') or []:
+        if int(p.get('privatePort',0)) == 22:
+            ip = p.get('ip','') or ip; port = p.get('publicPort',''); break
+print(f'{ip} {port}')
 "
 }
-read APP_SSH_HOST APP_SSH_PORT <<<"$(resolve "$APP_INFO" 22)"
+APP_SSH_HOST=""; APP_SSH_PORT=""
+for i in $(seq 1 18); do
+  read APP_SSH_HOST APP_SSH_PORT <<<"$(resolve_ssh)"
+  [ -n "$APP_SSH_HOST" ] && [ -n "$APP_SSH_PORT" ] && break
+  echo "  +$((i*5))s  waiting for SSH port mapping..."
+  sleep 5
+done
 echo "    app-pod SSH -> $APP_SSH_HOST:$APP_SSH_PORT"
-[ -n "$APP_SSH_HOST" ] || { echo "FAILED: missing SSH endpoint"; exit 1; }
+[ -n "$APP_SSH_HOST" ] && [ -n "$APP_SSH_PORT" ] || { echo "FAILED: missing SSH endpoint"; exit 1; }
 
 echo "=== [4/4] persist to ${ENV_FILE}"
 {
