@@ -41,15 +41,21 @@ for i in $(seq 1 24); do
 done
 $SSH 'echo OK' 2>/dev/null | grep -q OK || { echo "FAILED: ssh never came up"; exit 1; }
 
-echo "=== [2/5] apt install: python3.12, node, pnpm, pulseaudio, ffmpeg"
+echo "=== [2/6] install toolchain: python3.12 (via uv), node20, pnpm, ffmpeg"
+# Python 3.12 comes from uv, NOT the deadsnakes PPA: on runpod/base (Ubuntu
+# 20.04 focal) the deadsnakes index accepts InRelease but never serves the
+# python3.12 Packages, so `apt-get install python3.12-venv` fails. uv pulls
+# a self-contained CPython 3.12 build with no apt/PPA/GPG dependency.
 $SSH 'set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
-  apt-get install -y -q software-properties-common curl ca-certificates
-  add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
-  apt-get update -q
-  apt-get install -y -q python3.12 python3.12-venv python3.12-dev \
-                       git pulseaudio ffmpeg postgresql-client
+  apt-get install -y -q curl ca-certificates git pulseaudio ffmpeg postgresql-client
+  if ! command -v python3.12 >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    uv python install 3.12
+    ln -sf "$(uv python find 3.12)" /usr/local/bin/python3.12
+  fi
   # Node 20 + pnpm
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y -q nodejs
