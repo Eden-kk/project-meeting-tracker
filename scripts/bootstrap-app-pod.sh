@@ -49,7 +49,7 @@ echo "=== [2/6] install toolchain: python3.12 (via uv), node20, pnpm, ffmpeg"
 $SSH 'set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
-  apt-get install -y -q curl ca-certificates git pulseaudio ffmpeg postgresql-client
+  apt-get install -y -q curl ca-certificates git pulseaudio ffmpeg postgresql-client cron
   if ! command -v python3.12 >/dev/null 2>&1; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
