@@ -81,6 +81,10 @@ if [ ! -x "${PGBIN}/initdb" ]; then
     add_pgdg || true
   fi
   if ! pg_available "$PG_VERSION"; then
+    # PGDG didn't provide it — drop the (possibly broken/404) PGDG source so
+    # it can't fail the install, then fall back to the newest base-repo PG.
+    rm -f /etc/apt/sources.list.d/pgdg.list
+    apt-get update -q 2>/dev/null || true
     fallback="$(newest_available)"
     if [ -n "$fallback" ]; then
       echo "    postgresql-${PG_VERSION} unavailable; falling back to postgresql-${fallback}"
