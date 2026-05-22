@@ -46,6 +46,18 @@ if [ ! -x "${PGBIN}/initdb" ]; then
   echo "=== installing postgresql-${PG_VERSION}"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
+  # Ubuntu focal's default repos only ship PostgreSQL 12. Add the official
+  # PGDG apt repo so postgresql-16 is available on any base image.
+  if ! apt-cache show "postgresql-${PG_VERSION}" >/dev/null 2>&1; then
+    echo "    postgresql-${PG_VERSION} not in default repos — adding PGDG"
+    apt-get install -y -q curl ca-certificates lsb-release gnupg
+    install -d /usr/share/postgresql-common/pgdg
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list
+    apt-get update -q
+  fi
   apt-get install -y -q "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
 fi
 
