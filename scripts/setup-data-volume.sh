@@ -109,6 +109,13 @@ if ! psql_su "-tAc \"SELECT 1 FROM pg_database WHERE datname='tracker'\"" | grep
 fi
 umask 077; printf '%s' "$PG_PASSWORD" > "$PGPASS_FILE"; chmod 600 "$PGPASS_FILE"
 
+# alembic's default alembic_version.version_num is VARCHAR(32), but our
+# revision ids are longer (e.g. 0023_workspaces_orchestrator_fields = 35
+# chars), so `alembic upgrade` aborts with "value too long". Pre-create /
+# widen the table to VARCHAR(255) so migrations can record their revision.
+psql_su "-d tracker -v ON_ERROR_STOP=1 -c \"CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(255) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))\"" || true
+psql_su "-d tracker -c \"ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)\"" || true
+
 # --- 6. restore from newest volume snapshot if the DB is empty ------------
 # "Empty" = no `meetings` table yet. A fresh local cluster on a recreated
 # pod restores the last snapshot taken before the previous pod died.
