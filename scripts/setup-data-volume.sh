@@ -115,13 +115,29 @@ fi
 chown -R postgres:postgres "$DATA_DIR" 2>/dev/null || true
 
 # --- 3. init the cluster if the volume is fresh ---------------------------
+# MooseFS quirk: a chmod by the postgres user is ignored on this volume and
+# the dir reports 0777, so `initdb` (which runs as postgres and chmods the
+# data dir to 0700 internally) leaves it 0777 and Postgres then refuses to
+# start ("data directory has invalid permissions"). Work around it by
+# running initdb on LOCAL disk (where postgres can chmod), then moving the
+# cluster onto the volume and setting 0700 AS ROOT (root's chmod sticks on
+# MooseFS). At runtime Postgres only reads the perms, never re-chmods, so
+# the root-set 0700 holds.
 FRESH_INIT=0
 if [ ! -s "${PGDATA}/PG_VERSION" ]; then
-  echo "=== initdb fresh cluster at ${PGDATA}"
-  mkdir -p "$PGDATA"
+  echo "=== initdb fresh cluster (local init, then move onto volume)"
+  LOCAL_INIT="/var/lib/postgresql/pginit.$$"
+  rm -rf "$LOCAL_INIT"
+  install -d -o postgres -g postgres -m 700 "$LOCAL_INIT"
+  su postgres -c "${PGBIN}/initdb -D '${LOCAL_INIT}' --encoding=UTF8 --locale=C.UTF-8"
+  # Move the initialized cluster onto the volume (cross-fs = copy), then fix
+  # ownership + perms as root so they stick.
+  rm -rf "$PGDATA"
+  mkdir -p "$(dirname "$PGDATA")"
+  cp -a "$LOCAL_INIT" "$PGDATA"
+  rm -rf "$LOCAL_INIT"
   chown -R postgres:postgres "$PGDATA"
   chmod 700 "$PGDATA"
-  su postgres -c "${PGBIN}/initdb -D '${PGDATA}' --encoding=UTF8 --locale=C.UTF-8"
   FRESH_INIT=1
   # Pin the major version on the volume so every future reattach installs
   # the matching binary (a cluster can't be opened by a different major).
@@ -134,6 +150,10 @@ if [ ! -s "${PGDATA}/PG_VERSION" ]; then
   echo "host all all 127.0.0.1/32 scram-sha-256" >> "${PGDATA}/pg_hba.conf"
 else
   echo "=== existing cluster found at ${PGDATA} — reusing (data preserved)"
+  # Re-assert ownership + 0700 as root (UID may differ on a new pod, and
+  # only root's chmod sticks on MooseFS).
+  chown -R postgres:postgres "$PGDATA"
+  chmod 700 "$PGDATA"
 fi
 
 # --- 4. start postgres -----------------------------------------------------
