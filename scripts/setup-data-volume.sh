@@ -85,11 +85,14 @@ if [ ! -s "${LOCAL_PGDATA}/PG_VERSION" ]; then
 fi
 
 # --- 4. start postgres ----------------------------------------------------
+# Log into a postgres-owned dir; the postgres user can't write /var/log.
+PGLOG_DIR="/var/log/postgresql"
+install -d -o postgres -g postgres "$PGLOG_DIR" 2>/dev/null || true
 if su postgres -c "${PGBIN}/pg_ctl -D '${LOCAL_PGDATA}' status" >/dev/null 2>&1; then
   echo "=== postgres already running"
 else
   echo "=== starting postgres"
-  su postgres -c "${PGBIN}/pg_ctl -D '${LOCAL_PGDATA}' -l '/var/log/pg-local.log' -w start"
+  su postgres -c "${PGBIN}/pg_ctl -D '${LOCAL_PGDATA}' -l '${PGLOG_DIR}/pg-local.log' -w start"
 fi
 
 psql_su() { su postgres -c "${PGBIN}/psql -p ${PG_PORT} $*"; }
