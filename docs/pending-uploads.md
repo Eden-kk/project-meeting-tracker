@@ -34,8 +34,10 @@ finalize.
 
 ## Status
 
-- [ ] New durable pod up + healthy
-- [ ] Workspaces `moss` + `ambient agent` created
+- [x] New durable pod up + healthy — `k3y6g3qro9iuij` (EU-RO-1), proxy
+      https://k3y6g3qro9iuij-8050.proxy.runpod.net
+- [x] Workspaces `moss` (ws_moss) + `ambient agent` (ws_ambient_agent) created
+- [x] OpenAI key set in pod /workspace/app/.env.local
 - [ ] Files transferred from Mac (await user / SPA upload)
 - [ ] ambient agent: sync-0514, sync-0518, sync-0521 (merged)
 - [ ] moss: interview-finance
