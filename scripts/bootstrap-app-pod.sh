@@ -68,13 +68,17 @@ $SSH "set -e
   cd /workspace/app && git log --oneline -1
 "
 
-echo "=== [4/5] write /workspace/app/.env.local on the pod"
+echo "=== [4/6] write /workspace/app/.env.local on the pod"
 # Build the contents locally, then scp it. NEVER pass secrets on the
 # command line — they'd land in /proc/$pid/cmdline.
 TMP_ENV="$(mktemp)"
 trap 'rm -f "$TMP_ENV"' EXIT
 {
   echo "DATABASE_URL=${DATABASE_URL}"
+  echo "BLOB_STORE_DIR=${BLOB_STORE_DIR:-/data/blobs}"
+  # PG_PASSWORD is needed only for the FIRST init of a fresh volume;
+  # setup-data-volume.sh stores it on the volume afterwards.
+  [ -n "${PG_PASSWORD:-}" ]             && echo "PG_PASSWORD=${PG_PASSWORD}"
   echo "OPENAI_API_KEY=${OPENAI_API_KEY}"
   echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
   [ -n "${ZOOM_SDK_KEY:-}" ]            && echo "ZOOM_SDK_KEY=${ZOOM_SDK_KEY}"
@@ -87,7 +91,12 @@ scp -o StrictHostKeyChecking=no -P "$APP_POD_SSH_PORT" \
     "$TMP_ENV" "${POD}:/workspace/app/.env.local"
 $SSH 'chmod 600 /workspace/app/.env.local'
 
-echo "=== [5/5] run scripts/deploy.sh on the pod"
+echo "=== [5/6] init Postgres + blobs on the network volume (/data)"
+# Idempotent: fresh volume -> initdb + create role/db; re-attached volume
+# -> just start the existing cluster (data preserved).
+$SSH 'cd /workspace/app && set -a && . ./.env.local && set +a && DATA_DIR=/data bash scripts/setup-data-volume.sh'
+
+echo "=== [6/6] run scripts/deploy.sh on the pod"
 $SSH 'cd /workspace/app && bash scripts/deploy.sh' | tail -25
 
 cat <<EOF

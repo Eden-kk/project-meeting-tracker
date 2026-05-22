@@ -71,9 +71,17 @@ echo "=== [4/7] frontend build"
 pnpm install --silent
 pnpm build 2>&1 | tail -3
 
-echo "=== [5/7] alembic upgrade head"
+echo "=== [5/7] ensure DB on volume + alembic upgrade head"
 # DATABASE_URL must be in the environment; source .env.local if present.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# Durable storage: if a /data network volume is mounted, make sure its
+# Postgres cluster is running before migrations (idempotent — starts the
+# existing cluster on redeploys, initialises a fresh volume on first boot).
+# Pods without the volume use an external DATABASE_URL and skip this.
+if mountpoint -q /data 2>/dev/null || [ -d /data/pgdata ]; then
+  DATA_DIR=/data bash scripts/setup-data-volume.sh 2>&1 | sed 's/^/    /' \
+    || echo "    WARN: setup-data-volume.sh failed — DB may be down"
+fi
 .venv/bin/alembic upgrade head 2>&1 | tail -3
 
 echo "=== [6/7] restart uvicorn on :${APP_PORT}"
@@ -109,6 +117,10 @@ fi
   echo "STORAGE_ROUTER_URL=\"http://127.0.0.1:${APP_PORT}\""
   echo "FRONTEND_DIST=\"${APP_DIR}/dist\""
   echo "PYTHONPATH=\"${APP_DIR}/src\""
+  # Durable blobs: when the /data volume is mounted, pin the blob store to
+  # it so audio survives pod death. Otherwise the app default (./var/blobs)
+  # applies.
+  if [ -d /data ]; then echo "BLOB_STORE_DIR=\"/data/blobs\""; fi
 } >> /tmp/deploy.env.shell
 set -a; . /tmp/deploy.env.shell; set +a
 # Guard: FRONTEND_DIST must point at a real built SPA, else `/` 307s to /docs.
