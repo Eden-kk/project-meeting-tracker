@@ -76,6 +76,40 @@ def _extract_audio_track(video_path: str) -> str:
     return out_path
 
 
+def _transcribe_faster_whisper(path: str) -> list[dict]:
+    """Self-hosted CTranslate2 Whisper ASR. Returns normalized segments
+    (speaker overlay is added later by assign_speakers)."""
+    model = _get_model()
+    segments_iter, _info = model.transcribe(
+        path,
+        language=None,
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
+        word_timestamps=False,
+        condition_on_previous_text=False,
+        initial_prompt=config.WHISPER_INITIAL_PROMPT,
+        beam_size=5,
+        temperature=[0.0, 0.2, 0.4, 0.6],
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+    )
+    segments: list[dict] = []
+    for i, seg in enumerate(segments_iter):
+        segments.append({
+            "segment_id": f"seg_{i:03d}",
+            "speaker_id": "speaker_1",
+            "speaker_name": None,
+            "start_ms": int(seg.start * 1000),
+            "end_ms": int(seg.end * 1000),
+            "text": seg.text.strip(),
+            "confidence": _confidence(seg.avg_logprob),
+            "source_type": "voice_file",
+            "is_final": True,
+        })
+    return segments
+
+
 def transcribe_voice_file(
     audio_path: str | Path,
     *,
@@ -102,35 +136,12 @@ def transcribe_voice_file(
         log.info("video container detected (%s); extracting audio track", Path(path).suffix)
         extracted_wav = _extract_audio_track(path)
         path = extracted_wav
-    model = _get_model()
-    segments_iter, _info = model.transcribe(
-        path,
-        language=None,
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
-        word_timestamps=False,
-        condition_on_previous_text=False,
-        initial_prompt="以下是一段会议录音的中英文混合转录,可能涉及项目讨论。",
-        beam_size=5,
-        temperature=[0.0, 0.2, 0.4, 0.6],
-        no_speech_threshold=0.6,
-        log_prob_threshold=-1.0,
-        compression_ratio_threshold=2.4,
-    )
+    if config.ASR_BACKEND == "deepinfra":
+        from .deepinfra_asr import transcribe_deepinfra
 
-    segments: list[dict] = []
-    for i, seg in enumerate(segments_iter):
-        segments.append({
-            "segment_id": f"seg_{i:03d}",
-            "speaker_id": "speaker_1",
-            "speaker_name": None,
-            "start_ms": int(seg.start * 1000),
-            "end_ms": int(seg.end * 1000),
-            "text": seg.text.strip(),
-            "confidence": _confidence(seg.avg_logprob),
-            "source_type": "voice_file",
-            "is_final": True,
-        })
+        segments = transcribe_deepinfra(path)
+    else:
+        segments = _transcribe_faster_whisper(path)
 
     diarization_error: str | None = None
     try:

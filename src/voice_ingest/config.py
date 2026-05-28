@@ -42,6 +42,23 @@ MODEL_CACHE_DIR: Path = Path(
 
 MAX_UPLOAD_BYTES: int = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
 
+# --- ASR backend selection ------------------------------------------------
+# "faster_whisper" (default): self-hosted CTranslate2 model on this box.
+# "deepinfra": call DeepInfra's hosted whisper-large-v3 API for the ASR
+#   step. Diarization (pyannote) still runs locally over the same audio,
+#   so speaker labels are unaffected by this switch.
+ASR_BACKEND: str = os.environ.get("ASR_BACKEND", "faster_whisper").strip().lower()
+DEEPINFRA_API_KEY: str = os.environ.get("DEEPINFRA_API_KEY", "")
+DEEPINFRA_ASR_URL: str = os.environ.get(
+    "DEEPINFRA_ASR_URL",
+    "https://api.deepinfra.com/v1/openai/audio/transcriptions",
+)
+DEEPINFRA_ASR_MODEL: str = os.environ.get("DEEPINFRA_ASR_MODEL", "openai/whisper-large-v3")
+DEEPINFRA_ASR_TIMEOUT_S: float = float(os.environ.get("DEEPINFRA_ASR_TIMEOUT_S", "300"))
+
+# faster-whisper decoding hint (bilingual ZH/EN meetings). Overridable.
+WHISPER_INITIAL_PROMPT: str = os.environ.get("WHISPER_INITIAL_PROMPT", '以下是一段会议录音的中英文混合转录,可能涉及项目讨论。')
+
 # Wave 8.3: how long the per-meeting sentence buffer in storage-router holds
 # a trailing fragment without terminal punctuation before force-flushing it
 # as a sentence. Stops long mid-sentence pauses from stalling the live UI.
