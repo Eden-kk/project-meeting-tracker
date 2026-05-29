@@ -4,22 +4,24 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from storage_router import storage
 from storage_router.db import get_session
-from storage_router.models.contracts import Meeting, MeetingStatus
-from storage_router.models.db import MeetingRow
+from storage_router.models.contracts import Meeting, MeetingStatus, SourceType
+from storage_router.models.db import ConversationArtifactRow, MeetingRow
 
 router = APIRouter()
 
 
-def _meeting_to_contract(row) -> Meeting:
+def _meeting_to_contract(row, source_type: str | None = None) -> Meeting:
     return Meeting(
         meeting_id=row.id,
         artifact_id=row.artifact_id,
         title=row.title,
         status=MeetingStatus(row.status),
+        source_type=SourceType(source_type) if source_type else None,
         started_at=row.started_at,
         ended_at=row.ended_at,
         finalized_at=row.finalized_at,
@@ -56,8 +58,21 @@ def list_meetings(
     rows, total = storage.list_meetings(
         session, workspace_id=workspace_id, limit=limit, offset=offset
     )
+    # Batch-fetch artifact source_type for these meetings (one query, no N+1)
+    # so the UI can label the source from the server.
+    art_ids = [r.artifact_id for r in rows]
+    src_by_artifact: dict[str, str] = {}
+    if art_ids:
+        for aid, stype in session.execute(
+            select(ConversationArtifactRow.id, ConversationArtifactRow.source_type)
+            .where(ConversationArtifactRow.id.in_(art_ids))
+        ).all():
+            src_by_artifact[aid] = stype
     return {
-        "items": [_meeting_to_contract(r).model_dump(mode="json") for r in rows],
+        "items": [
+            _meeting_to_contract(r, src_by_artifact.get(r.artifact_id)).model_dump(mode="json")
+            for r in rows
+        ],
         "total": total,
     }
 
@@ -67,7 +82,9 @@ def get_meeting(meeting_id: str, session: Session = Depends(get_session)):
     row = storage.get_meeting(session, meeting_id)
     if row is None:
         raise HTTPException(status_code=404, detail="meeting not found")
-    return _meeting_to_contract(row).model_dump(mode="json")
+    artifact = session.get(ConversationArtifactRow, row.artifact_id)
+    source_type = artifact.source_type if artifact is not None else None
+    return _meeting_to_contract(row, source_type).model_dump(mode="json")
 
 
 @router.get("/api/meetings/{meeting_id}/transcript")

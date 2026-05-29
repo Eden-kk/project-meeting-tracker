@@ -140,6 +140,15 @@ class Meeting(BaseModel):
     artifact_id: str = Field(..., min_length=1)
     title: str = ""
     status: MeetingStatus
+    source_type: SourceType | None = Field(
+        None,
+        description=(
+            "Origin of the meeting (live_voice / voice_file / "
+            "transcript_file / pasted_transcript / zoom_bot), from the "
+            "underlying artifact. Lets the UI label the source from the "
+            "server instead of guessing from local state."
+        ),
+    )
     started_at: datetime | None = None
     ended_at: datetime | None = None
     finalized_at: datetime | None = None

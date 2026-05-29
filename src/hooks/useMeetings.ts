@@ -41,7 +41,14 @@ export function meetingToSummary(
     evidence_quality: meeting.evidence_quality,
     detected_pattern:
       meeting.detected_pattern?.primary_pattern ?? registryEntry?.detected_pattern ?? null,
-    source_type: registryEntry?.source_type ?? REGISTRY_FALLBACK_FIELDS.source_type,
+    // Prefer the server's source_type (authoritative, from the artifact);
+    // fall back to the local registry, then the default. Without this, any
+    // meeting not in this browser's registry (imported elsewhere or after a
+    // pod restore) mislabels as "Pasted".
+    source_type:
+      (meeting as { source_type?: StoredMeetingSummary['source_type'] }).source_type ??
+      registryEntry?.source_type ??
+      REGISTRY_FALLBACK_FIELDS.source_type,
     imported_at: registryEntry?.imported_at ?? REGISTRY_FALLBACK_FIELDS.imported_at,
     last_seen_at: registryEntry?.last_seen_at ?? REGISTRY_FALLBACK_FIELDS.last_seen_at,
   };
