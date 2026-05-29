@@ -41,13 +41,21 @@ mkdir -p "$DATA_DIR" "$BLOB_DIR" "$DUMP_DIR"
 
 # --- 1. install postgres (local) ------------------------------------------
 export DEBIAN_FRONTEND=noninteractive
+# Detect the newest installed postgres SERVER by the presence of `initdb`
+# (the server-only binary). NOT just the bin dir: `postgresql-client-NN`
+# creates /usr/lib/postgresql/NN/bin with psql/pg_dump but no initdb, which
+# previously made us think a server was installed and skip the real install.
 newest_pg() {
-  ls -d /usr/lib/postgresql/*/bin 2>/dev/null \
-    | grep -oE '/[0-9]+/' | tr -d / | sort -n | tail -1
+  for d in $(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -rV); do
+    if [ -x "$d/initdb" ]; then
+      echo "$d" | grep -oE '/[0-9]+/' | tr -d /
+      return 0
+    fi
+  done
 }
 PG_VERSION="$(newest_pg || true)"
 if [ -z "$PG_VERSION" ]; then
-  echo "=== installing postgresql"
+  echo "=== installing postgresql server"
   apt-get update -q || true
   cand="$(apt-cache search '^postgresql-[0-9]+$' 2>/dev/null | grep -oE 'postgresql-[0-9]+' | grep -oE '[0-9]+$' | sort -n | tail -1)"
   cand="${cand:-12}"
@@ -55,7 +63,7 @@ if [ -z "$PG_VERSION" ]; then
   PG_VERSION="$(newest_pg)"
 fi
 PGBIN="/usr/lib/postgresql/${PG_VERSION}/bin"
-[ -x "${PGBIN}/initdb" ] || { echo "FATAL: no postgres install at ${PGBIN}" >&2; exit 1; }
+[ -n "$PG_VERSION" ] && [ -x "${PGBIN}/initdb" ] || { echo "FATAL: no postgres server (initdb) installed" >&2; exit 1; }
 echo "    using PostgreSQL ${PG_VERSION}"
 
 # --- 2. resolve password (provided wins; else stored on volume) -----------
