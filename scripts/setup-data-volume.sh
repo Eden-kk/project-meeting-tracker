@@ -135,12 +135,29 @@ if [ "$has_schema" != "t" ]; then
   latest="$(ls -1t "${DUMP_DIR}"/tracker-*.sql.gz 2>/dev/null | head -1 || true)"
   if [ -n "$latest" ]; then
     echo "=== restoring tracker DB from snapshot: ${latest}"
-    gunzip -c "$latest" | su postgres -c "${PGBIN}/psql -p ${PG_PORT} -q -d tracker" \
-      && echo "    restore OK" || echo "    WARN: restore reported errors (continuing)"
+    # Restore connecting AS the `tracker` role (over TCP, scram password)
+    # so every restored object is OWNED by tracker. Restoring as the
+    # postgres superuser leaves tables owned by postgres and the app
+    # (connecting as tracker) then gets "permission denied for table ...".
+    if PGPASSWORD="$PG_PASSWORD" gunzip -c "$latest" \
+        | "${PGBIN}/psql" -h 127.0.0.1 -p "${PG_PORT}" -U tracker -d tracker -q; then
+      echo "    restore OK (owned by tracker)"
+    else
+      echo "    WARN: restore reported errors (continuing)"
+    fi
   else
     echo "=== no snapshot to restore (fresh database)"
   fi
 fi
+
+# --- 6b. ensure the app role owns everything ------------------------------
+# Idempotent ownership fix: any object left owned by the postgres superuser
+# (e.g. from a snapshot restored as postgres) is reassigned to tracker, or
+# the app gets "permission denied for table ...". No-op once tracker owns
+# them. Runs every invocation so a previously-broken restore self-heals.
+psql_su "-d tracker -c \"REASSIGN OWNED BY postgres TO tracker\"" \
+  || psql_su "-d tracker -c \"GRANT ALL ON ALL TABLES IN SCHEMA public TO tracker; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO tracker;\"" \
+  || true
 
 # --- 7. install the backup cron (snapshots -> volume) ---------------------
 # Hourly + retained; deploy.sh also snapshots after each migrate.
