@@ -132,7 +132,12 @@ app = modal.App("voice-ingest")
 @app.function(
     image=image,
     gpu="A10G",
-    timeout=600,
+    # whisper-large-v3 + pyannote on a full 30-60 min meeting exceeds 10 min
+    # of GPU compute; the old 600s ceiling timed out (HTTP 500) once
+    # diarization actually started running. 40 min gives ample headroom.
+    # The storage-router client timeout (config.voice_ingest_timeout_seconds)
+    # is set higher so the client always outlasts the function.
+    timeout=2400,
     scaledown_window=300,
     max_containers=2,
     secrets=[modal.Secret.from_name("hf-token-tracker")],

@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     )
     # Whisper on CPU is roughly 1x real-time; 1800s headroom covers ~30 min clips.
     voice_ingest_timeout_seconds: float = Field(
-        default=1800.0,
+        # Must outlast the Modal voice-ingest function timeout (2400s) so the
+        # client keeps polling the 303 redirect until the diarized transcript
+        # is ready rather than giving up mid-job.
+        default=2700.0,
         validation_alias="VOICE_INGEST_TIMEOUT_SECONDS",
     )
     # Transcript parsing is sub-second; 30s is a generous ceiling for retries/network.
