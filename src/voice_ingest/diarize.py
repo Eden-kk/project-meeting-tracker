@@ -38,6 +38,17 @@ def _get_pipeline():
                 config.PYANNOTE_PIPELINE,
                 token=config.HF_TOKEN,
             )
+        # pyannote pipelines default to CPU; on CPU a 30-min meeting takes
+        # >40 min and blows the function timeout. Move to GPU when available
+        # (~10-20x faster) so diarization finishes in a few minutes.
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                _pipeline.to(torch.device("cuda"))
+                log.info("pyannote pipeline moved to CUDA")
+        except Exception as exc:  # noqa: BLE001 — fall back to CPU
+            log.warning("could not move pyannote to GPU, using CPU: %s", exc)
     return _pipeline
 
 
