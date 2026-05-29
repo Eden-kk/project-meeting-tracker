@@ -53,6 +53,16 @@ image = (
         "torch==2.4.1",
         "torchaudio==2.4.1",
         "pyannote.audio==3.3.2",
+        # pyannote 3.3.2 calls hf_hub_download(use_auth_token=...), which
+        # huggingface_hub>=1.0 removed (renamed to `token`). Unpinned, pip
+        # floated to hub 1.17 and EVERY diarization call failed with
+        # "unexpected keyword argument 'use_auth_token'" -> silent single-
+        # speaker fallback. Pin to the last 0.x line that still accepts it.
+        "huggingface_hub==0.25.2",
+        # pyannote pulls matplotlib (via pyannote.metrics) at pipeline-load
+        # time; it isn't auto-installed in this slim image, so add it
+        # explicitly or from_pretrained dies with ModuleNotFoundError.
+        "matplotlib",
     )
     .env(
         {
