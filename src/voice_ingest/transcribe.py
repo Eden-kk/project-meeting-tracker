@@ -214,10 +214,21 @@ def transcribe_voice_file(
     """
     path = str(audio_path)
     extracted_wav: str | None = None
-    if Path(path).suffix.lower() in _VIDEO_SUFFIXES:
-        log.info("video container detected (%s); extracting audio track", Path(path).suffix)
-        extracted_wav = _extract_audio_track(path)
-        path = extracted_wav
+    # pyannote reads audio via libsndfile (soundfile), which only handles
+    # WAV/FLAC/OGG — it raises "Format not recognised" on m4a/webm/mp4/mp3,
+    # silently dropping diarization to single-speaker. faster-whisper, by
+    # contrast, decodes anything. So convert ANY non-WAV input to a 16kHz
+    # mono WAV up front and feed that to both stages. Conversion failure is
+    # non-fatal: fall back to the original path for ASR (diarization will
+    # then fall back to single-speaker).
+    if Path(path).suffix.lower() != ".wav":
+        try:
+            extracted_wav = _extract_audio_track(path)
+            path = extracted_wav
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "audio->wav conversion failed (%s); using original for ASR", exc
+            )
     if config.ASR_BACKEND == "deepinfra":
         from .deepinfra_asr import transcribe_deepinfra
 
