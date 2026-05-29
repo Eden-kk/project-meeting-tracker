@@ -72,8 +72,46 @@ image = (
             "WHISPER_COMPUTE_TYPE": "float16",
             "MAX_UPLOAD_BYTES": "209715200",
             "PYANNOTE_PIPELINE": "pyannote/speaker-diarization-3.1",
+            # Fixed, image-baked cache locations so weights are present on
+            # every cold container (no per-request 3GB re-download that blew
+            # past Modal's 150s web-request limit -> HTTP 303).
+            "MODEL_CACHE_DIR": "/models",
+            "HF_HOME": "/models/hf",
             # HF_TOKEN is injected at runtime via Modal Secret 'hf-token-tracker'.
         }
+    )
+)
+
+
+def _download_models() -> None:
+    """Bake whisper + pyannote weights into the image at build time.
+
+    Runs on CPU during the image build (with HF_TOKEN from the secret) so a
+    cold GPU container only has to LOAD weights from local disk, not download
+    ~3GB over the network inside a 150s-bounded web request.
+    """
+    import os
+    from faster_whisper import WhisperModel
+
+    WhisperModel(
+        "Systran/faster-whisper-large-v3",
+        device="cpu",
+        compute_type="int8",
+        download_root="/models",
+    )
+    from pyannote.audio import Pipeline
+
+    Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        use_auth_token=os.environ["HF_TOKEN"],
+    )
+
+
+image = (
+    image
+    .run_function(
+        _download_models,
+        secrets=[modal.Secret.from_name("hf-token-tracker")],
     )
     .add_local_dir(
         str(REPO_ROOT / "src" / "voice_ingest"),
@@ -102,10 +140,30 @@ app = modal.App("voice-ingest")
 @modal.concurrent(max_inputs=4)
 @modal.asgi_app()
 def fastapi():
-    """Mount the voice_ingest FastAPI app under Modal's HTTP endpoint."""
+    """Mount the voice_ingest FastAPI app under Modal's HTTP endpoint.
+
+    This function body runs ONCE per container at startup (Modal calls it to
+    obtain the ASGI app), so we preload whisper + pyannote here — at
+    container init, which is bounded by the function `timeout` (600s), NOT
+    the 150s web-request limit. With weights baked into the image, the load
+    is local-disk only (~tens of seconds), the container goes warm, and
+    every /voice/transcribe is fast with diarization running. Previously
+    models lazy-loaded inside the first request, which downloaded ~3GB and
+    blew past the 150s limit (HTTP 303) before diarization could ever run.
+    Keeping the function name `fastapi` preserves the deployed URL.
+    """
     import sys
 
     sys.path.insert(0, "/app")
+    from voice_ingest.transcribe import _get_model
+    from voice_ingest.diarize import _get_pipeline
+
+    _get_model()
+    try:
+        _get_pipeline()
+    except Exception as exc:  # noqa: BLE001 — don't block ASR if diarize load fails
+        print(f"pyannote preload failed: {type(exc).__name__}: {exc}")
+
     from voice_ingest.api import app as fastapi_app  # noqa: WPS433
 
     return fastapi_app
