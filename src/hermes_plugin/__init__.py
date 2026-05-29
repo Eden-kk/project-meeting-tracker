@@ -580,7 +580,12 @@ def live_interview_questions(
     if provider != "anthropic":
         from .runtime_openai import run_skill as _run_skill_openai
 
-        result = _run_skill_openai("live-interview-questioner", meeting_id, bootstrap)
+        # `user_question` is keyword-only on run_skill (both runtimes); passing
+        # bootstrap positionally raises "takes from 1 to 2 positional arguments
+        # but 3 were given" and silently kills every questioner tick.
+        result = _run_skill_openai(
+            "live-interview-questioner", meeting_id, user_question=bootstrap
+        )
     else:
         from .llm import run_skill as _run_skill
 
