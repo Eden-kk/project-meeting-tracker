@@ -23,10 +23,21 @@ def _get_pipeline():
     if _pipeline is None:
         from pyannote.audio import Pipeline
 
-        _pipeline = Pipeline.from_pretrained(
-            config.PYANNOTE_PIPELINE,
-            token=config.HF_TOKEN,
-        )
+        # pyannote.audio 3.x's `Pipeline.from_pretrained` takes the auth token
+        # as `use_auth_token`, NOT `token` (the latter raises "unexpected
+        # keyword argument 'token'" and silently drops us into single-speaker
+        # fallback — the bug that made every meeting show only speaker_1).
+        # Try the correct kwarg first, fall back across versions.
+        try:
+            _pipeline = Pipeline.from_pretrained(
+                config.PYANNOTE_PIPELINE,
+                use_auth_token=config.HF_TOKEN,
+            )
+        except TypeError:
+            _pipeline = Pipeline.from_pretrained(
+                config.PYANNOTE_PIPELINE,
+                token=config.HF_TOKEN,
+            )
     return _pipeline
 
 
