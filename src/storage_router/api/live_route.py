@@ -27,7 +27,16 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -295,6 +304,7 @@ async def receive_chunk(
 async def end_live_meeting(
     meeting_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
 ):
     """Flip the meeting from ``live`` -> ``ready``.
@@ -323,19 +333,29 @@ async def end_live_meeting(
     if buf is not None:
         for sentence in buf.flush():
             _persist_sentence(session, meeting_id, sentence)
-    if meeting.status == "live":
+    was_live = meeting.status == "live"
+    if was_live:
         meeting.status = "ready"
     session.commit()
     # Wave 6.3 + 6.4: tear down both agent loops. Safe to call even if
-    # no task was ever started (idle no-op). The standard finalize
-    # chain at /end runs the consolidation pass which dedupes any
-    # cards that the live-extraction overlap window emitted twice.
+    # no task was ever started (idle no-op).
     live_extraction.stop_for(meeting_id)
     live_extraction.stop_extraction_for(meeting_id)
     # Q1: cancel the questioner loop (idempotent — no-op when never started).
     from storage_router.live_interview_questioner import cancel_questioner_loop
 
     cancel_questioner_loop(request.app, meeting_id)
+
+    # Summary-on-finalize: live meetings already have their draft cards from
+    # the live-extraction loop, so we generate the narrative summary and mark
+    # the meeting finalized (without re-extracting). Runs in the background so
+    # /end returns promptly; only fires on the live -> ready transition so a
+    # repeat /end on an already-ready meeting doesn't re-finalize.
+    if was_live:
+        from storage_router.hermes_runtime import finalize_live_meeting
+
+        background_tasks.add_task(finalize_live_meeting, meeting_id)
+
     return {"meeting_id": meeting_id, "status": meeting.status}
 
 

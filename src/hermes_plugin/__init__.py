@@ -305,6 +305,46 @@ def live_summary(meeting_id: str) -> dict:
     return _run_live_summary(meeting_id)
 
 
+def summarize_meeting(meeting_id: str) -> str:
+    """Provider-aware narrative summary for finalize (meeting-summary-overall).
+
+    Reads the meeting transcript directly and returns the markdown summary
+    used by the SPA's Summary tab. Unlike :func:`live_summary` (a rolling,
+    in-progress summary), this is the at-finalize narrative — identical to
+    what the batch finalize path produces — and does NOT create or touch
+    memory cards. Returns ``""`` on empty/failed.
+    """
+    import os
+
+    from .client import StorageRouterClient
+
+    provider = (os.environ.get("LLM_PROVIDER") or "anthropic").strip().lower()
+    client = StorageRouterClient()
+    if provider != "anthropic":
+        from .runtime_openai import (
+            _default_openai_client,
+            _run_openai_summary_pass,
+        )
+
+        return _run_openai_summary_pass(
+            meeting_id=meeting_id,
+            topic_sentences=[],
+            storage_client=client,
+            llm=_default_openai_client(),
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-2024-11-20"),
+        )
+
+    from .runtime import _default_anthropic_client, _run_summary_pass
+
+    return _run_summary_pass(
+        meeting_id=meeting_id,
+        topic_sentences=[],
+        storage_client=client,
+        llm=_default_anthropic_client(),
+        model="claude-sonnet-4-5",
+    )
+
+
 def live_extraction(meeting_id: str, since_ms: int | None) -> dict:
     """Storage-router-facing entrypoint for the Wave 6.4 live extraction tick.
 

@@ -239,3 +239,105 @@ def _finalize_inner(meeting_id: str) -> None:
                 meeting.status = "ready"
                 meeting.last_finalize_error = f"persist_failed: {exc}"[:1000]
                 session.commit()
+
+
+def finalize_live_meeting(meeting_id: str) -> None:
+    """Background-task entry: finalize a live meeting on /end.
+
+    Live meetings accumulate draft cards during the meeting via the
+    live-extraction loop, so — unlike the batch path — we must NOT re-run
+    extraction here (it would duplicate those cards). Instead we generate
+    the narrative summary from the transcript and mark the meeting
+    finalized. Status flows ``ready → finalizing → finalized`` (revert to
+    ``ready`` with ``last_finalize_error`` on failure). Fire-and-forget per
+    the FastAPI BackgroundTasks contract — never raises to the caller.
+    """
+    acquired = _finalize_semaphore.acquire(timeout=30.0)
+    if not acquired:
+        log.warning(
+            "finalize_live_meeting: timed out waiting for finalize slot (meeting=%s)",
+            meeting_id,
+        )
+        return
+    try:
+        _finalize_live_inner(meeting_id)
+    except Exception:  # noqa: BLE001 — fire-and-forget; never raise to caller.
+        log.exception(
+            "finalize_live_meeting: unexpected error (meeting=%s)", meeting_id
+        )
+    finally:
+        _finalize_semaphore.release()
+
+
+def _finalize_live_inner(meeting_id: str) -> None:
+    from sqlalchemy import select
+
+    from storage_router.db import SessionLocal
+    from storage_router.models.db import (
+        ConversationArtifactRow,
+        MeetingRow,
+        Workspace,
+    )
+
+    with SessionLocal() as session:
+        meeting = session.execute(
+            select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
+        ).scalar_one_or_none()
+        if meeting is None:
+            log.warning("finalize_live_meeting: meeting %s missing", meeting_id)
+            return
+        if meeting.status != "ready":
+            log.info(
+                "finalize_live_meeting: skipping meeting=%s (status=%s, expected ready)",
+                meeting_id,
+                meeting.status,
+            )
+            return
+        meeting.status = "finalizing"
+        meeting.last_finalize_error = None
+        session.commit()
+
+    try:
+        hermes = _import_or_503()
+        summarize = getattr(hermes, "summarize_meeting", None)
+        if summarize is None:
+            raise HermesUnavailable("hermes_plugin.summarize_meeting not exported")
+        summary = summarize(meeting_id)
+    except Exception as exc:  # noqa: BLE001 — fire-and-forget surface.
+        log.exception(
+            "finalize_live_meeting: summary failed (meeting=%s)", meeting_id
+        )
+        with SessionLocal() as session:
+            meeting = session.get(MeetingRow, meeting_id)
+            if meeting is not None:
+                meeting.status = "ready"
+                meeting.last_finalize_error = str(exc)[:1000]
+                session.commit()
+        return
+
+    try:
+        with SessionLocal() as session:
+            meeting = session.execute(
+                select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
+            ).scalar_one()
+            if isinstance(summary, str):
+                meeting.finalized_summary = summary
+            meeting.status = "finalized"
+            meeting.finalized_at = datetime.now(UTC)
+            meeting.last_finalize_error = None
+            artifact = session.get(ConversationArtifactRow, meeting.artifact_id)
+            if artifact is not None:
+                workspace = session.get(Workspace, artifact.workspace_id)
+                if workspace is not None:
+                    workspace.last_meeting_at = meeting.finalized_at
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "finalize_live_meeting: persistence failed (meeting=%s)", meeting_id
+        )
+        with SessionLocal() as session:
+            meeting = session.get(MeetingRow, meeting_id)
+            if meeting is not None:
+                meeting.status = "ready"
+                meeting.last_finalize_error = f"persist_failed: {exc}"[:1000]
+                session.commit()
