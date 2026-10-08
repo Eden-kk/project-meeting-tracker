@@ -70,19 +70,31 @@ async def transcribe_voice_file_async(
     min_speakers: int | None = None,
     max_speakers: int | None = None,
 ) -> NormalizedTranscript:
-    """Async wrapper: runs the blocking httpx.post in a thread so the event
-    loop is not stalled during Whisper STT (which can take many seconds).
+    """Cancellable HTTP wait with a total deadline, including redirect polling.
 
-    Callers in async route handlers MUST use this variant so that concurrent
-    requests (e.g. a second audio-chunk or /end) are not blocked.
+    Cancelling this coroutine closes the local request; it does not guarantee
+    that an already accepted remote GPU job stops. Do not retry automatically:
+    a timeout is not proof that the upstream did not perform the work.
     """
-    return await asyncio.to_thread(
-        transcribe_voice_file,
-        path,
-        num_speakers=num_speakers,
-        min_speakers=min_speakers,
-        max_speakers=max_speakers,
-    )
+    url = settings.voice_ingest_url.rstrip("/") + "/voice/transcribe"
+    hints = {
+        "num_speakers": num_speakers,
+        "min_speakers": min_speakers,
+        "max_speakers": max_speakers,
+    }
+    data = {key: str(int(value)) for key, value in hints.items() if value is not None}
+    async with asyncio.timeout(settings.voice_ingest_timeout_seconds):
+        async with httpx.AsyncClient(
+            timeout=settings.voice_ingest_timeout_seconds, follow_redirects=True
+        ) as client:
+            with path.open("rb") as audio:
+                response = await client.post(
+                    url,
+                    files={"audio": (path.name, audio, "audio/webm")},
+                    data=data or None,
+                )
+            response.raise_for_status()
+            return NormalizedTranscript.model_validate(response.json())
 
 
 def parse_transcript(
