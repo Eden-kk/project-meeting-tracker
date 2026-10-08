@@ -23,6 +23,57 @@ servers:
   - url: http://localhost:8000
 
 paths:
+  /api/meetings/{meeting_id}/import-job:
+    parameters:
+      - { name: meeting_id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read import processing status and attempt count
+      responses:
+        '200':
+          description: Current import job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '404': { description: Missing, deleted or unsupported import }
+  /api/meetings/{meeting_id}/import-job/cancel:
+    parameters:
+      - { name: meeting_id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Revoke local result publication; does not cancel remote computation
+      responses:
+        '200':
+          description: Cancelled locally, including already-cancelled requests
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '404': { description: Missing, deleted or unsupported import }
+        '409': { description: Import already completed or failed }
+  /api/meetings/{meeting_id}/import-job/retry:
+    parameters:
+      - { name: meeting_id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Explicitly requeue failed or cancelled imports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                remote_stopped:
+                  type: boolean
+                  default: false
+                  description: User verified that the previous remote job stopped; required if any prior attempt started.
+      responses:
+        '202':
+          description: Persisted pending retry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJob' }
+        '404': { description: Missing, deleted or unsupported import }
+        '409': { description: Not retryable or remote-stop confirmation missing }
+        '422': { description: Invalid request body }
   /api/conversations/import:
     post:
       summary: Import a conversation (voice file, transcript file, or pasted text)
@@ -619,6 +670,14 @@ components:
           description: At 202 time the artifact is always 'received'. Subsequent state transitions are observed via GET /api/meetings/{id}.
           enum: [received]
 
+    ImportJob:
+      type: object
+      required: [status, attempts, error]
+      properties:
+        status: { type: string }
+        attempts: { type: integer, minimum: 0 }
+        error: { type: string, nullable: true }
+
     Meeting:
       description: Mirrors schemas/meeting.schema.json
       type: object
@@ -626,10 +685,14 @@ components:
       properties:
         meeting_id:        { type: string }
         artifact_id:       { type: string }
+        source_type:
+          type: string
+          nullable: true
+          enum: [live_voice, zoom_rtms, voice_file, transcript_file, pasted_transcript, zoom_bot]
         title:             { type: string, default: '' }
         status:
           type: string
-          enum: [live, processing, ready, finalizing, finalized, failed]
+          enum: [live, processing, ready, finalizing, finalized, failed, cancelled]
         started_at:        { type: string, format: date-time, nullable: true }
         ended_at:          { type: string, format: date-time, nullable: true }
         finalized_at:      { type: string, format: date-time, nullable: true }

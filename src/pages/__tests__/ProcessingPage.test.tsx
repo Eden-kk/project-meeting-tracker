@@ -81,6 +81,6 @@ describe('ProcessingPage', () => {
     vi.spyOn(client, 'getMeeting').mockResolvedValue(meetingFixture({ status: 'failed' }));
     renderAt('/ws/ws_dev/meetings/m_1/processing');
     expect(await screen.findByText(/processing failed/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /try again/i })).toHaveAttribute('href', '/ws/ws_dev/');
+    expect(screen.getByRole('link', { name: /import a different file/i })).toHaveAttribute('href', '/ws/ws_dev/');
   });
 });

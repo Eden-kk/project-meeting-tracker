@@ -82,7 +82,8 @@
         "normalizing",
         "extracting",
         "ready",
-        "failed"
+        "failed",
+        "cancelled"
       ]
     }
   }

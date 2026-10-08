@@ -13,7 +13,7 @@ const SOURCE_TYPES: StoredMeetingSummary['source_type'][] = [
   'live_voice',
   'zoom_rtms',
 ];
-const STATUSES: StoredMeetingSummary['status'][] = ['live', 'processing', 'ready', 'finalized', 'failed'];
+const STATUSES: StoredMeetingSummary['status'][] = ['live', 'processing', 'ready', 'finalized', 'failed', 'cancelled'];
 
 type View = 'table' | 'cards';
 

@@ -14,6 +14,7 @@ from storage_router.api import (
     action_items_route,
     followup_route,
     import_route,
+    import_jobs_route,
     live_route,
     meetings_route,
     memory_cards_route,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
         app.state.live_tasks.clear()
 
     app.include_router(import_route.router)
+    app.include_router(import_jobs_route.router)
     app.include_router(live_route.router)
     app.include_router(meetings_route.router)
     app.include_router(memory_cards_route.router)

@@ -36,6 +36,7 @@ class Visibility(Enum):
 
 
 class ProcessingStatus(Enum):
+    cancelled = "cancelled"
     received = "received"
     transcribing = "transcribing"
     diarizing = "diarizing"
@@ -47,6 +48,7 @@ class ProcessingStatus(Enum):
 
 
 class MeetingStatus(Enum):
+    cancelled = "cancelled"
     live = "live"
     processing = "processing"
     ready = "ready"

@@ -21,7 +21,7 @@
     },
     "status": {
       "type": "string",
-      "enum": ["live", "processing", "ready", "finalized", "failed"]
+      "enum": ["live", "processing", "ready", "finalizing", "finalized", "failed", "cancelled"]
     },
     "started_at": {
       "type": ["string", "null"],

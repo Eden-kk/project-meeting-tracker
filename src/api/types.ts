@@ -4,6 +4,178 @@
  */
 
 export interface paths {
+    "/api/meetings/{meeting_id}/import-job": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read import processing status and attempt count */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    meeting_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current import job */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportJob"];
+                    };
+                };
+                /** @description Missing */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meetings/{meeting_id}/import-job/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke local result publication; does not cancel remote computation */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    meeting_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cancelled locally, including already-cancelled requests */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportJob"];
+                    };
+                };
+                /** @description Missing */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Import already completed or failed */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meetings/{meeting_id}/import-job/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meeting_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly requeue failed or cancelled imports */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    meeting_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /**
+                         * @description User verified that the previous remote job stopped; required if any prior attempt started.
+                         * @default false
+                         */
+                        remote_stopped?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Persisted pending retry */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportJob"];
+                    };
+                };
+                /** @description Missing */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not retryable or remote-stop confirmation missing */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Invalid request body */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/conversations/import": {
         parameters: {
             query?: never;
@@ -868,6 +1040,151 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/zoom-bot/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dispatch a headless Hermes bot to a Zoom meeting URL.
+         * @description Creates a `MeetingRow` with `source_type='zoom_bot'` and asks the
+         *     bot dispatcher to spawn a subprocess that joins the Zoom call,
+         *     captures audio, and uploads chunks to
+         *     `POST /api/live-meetings/{id}/audio-chunk` (the same endpoint the
+         *     browser-mic flow uses).
+         *
+         *     Returns 503 with `error.code='zoom_creds_missing'` when the four
+         *     Zoom Marketplace env vars are absent, or `bot_pool_full` when the
+         *     per-pod cap (`ZOOM_BOT_POOL_SIZE`, default 3) is saturated.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        workspace_id: string;
+                        zoom_url: string;
+                        /** @default Zoom meeting */
+                        title?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Bot dispatched. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            meeting_id: string;
+                            artifact_id: string;
+                            zoom_meeting_number: string;
+                            /** @enum {string} */
+                            status: "live";
+                        };
+                    };
+                };
+                /** @description Could not parse a meeting number from the URL. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /**
+                 * @description Either Marketplace credentials are missing
+                 *     (`error.code='zoom_creds_missing'`) or the bot pool is full
+                 *     (`error.code='bot_pool_full'`).
+                 */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/zoom-bot/sdk-jwt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a Meeting SDK JWT (HS256, ZOOM_SDK_SECRET) for the bot.
+         * @description The bot's headless Chromium fetches this JWT before calling
+         *     `ZoomMtg.join(...)`. The JWT is signed with `ZOOM_SDK_SECRET`
+         *     ONLY — `ZOOM_OAUTH_CLIENT_SECRET` is reserved for the future
+         *     user-grant flow and must NEVER sign Meeting SDK JWTs.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        meeting_number: string;
+                        /**
+                         * @default 0
+                         * @enum {integer}
+                         */
+                        role?: 0 | 1;
+                    };
+                };
+            };
+            responses: {
+                /** @description Fresh signature payload. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            signature: string;
+                            sdk_key: string;
+                            meeting_number: string;
+                            role: number;
+                        };
+                    };
+                };
+                /** @description Marketplace credentials not configured. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -881,14 +1198,21 @@ export interface components {
              */
             processing_status: "received";
         };
+        ImportJob: {
+            status: string;
+            attempts: number;
+            error: string | null;
+        };
         /** @description Mirrors schemas/meeting.schema.json */
         Meeting: {
             meeting_id: string;
             artifact_id: string;
+            /** @enum {string|null} */
+            source_type?: "live_voice" | "zoom_rtms" | "voice_file" | "transcript_file" | "pasted_transcript" | "zoom_bot" | null;
             /** @default  */
             title: string;
             /** @enum {string} */
-            status: "live" | "processing" | "ready" | "finalizing" | "finalized" | "failed";
+            status: "live" | "processing" | "ready" | "finalizing" | "finalized" | "failed" | "cancelled";
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */

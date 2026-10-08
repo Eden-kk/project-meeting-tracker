@@ -40,17 +40,21 @@ export default function MeetingReviewPage() {
     queryKey: queryKeys.transcript(id),
     queryFn: () => getMeetingTranscript(id),
     retry: false,
+    enabled: !!meetingQuery.data && ['ready', 'finalizing', 'finalized', 'live'].includes(meetingQuery.data.status),
   });
 
   useEffect(() => {
     if (!meetingQuery.data) return;
+    if (['processing', 'failed', 'cancelled'].includes(meetingQuery.data.status)) {
+      navigate(`/ws/${workspaceId}/meetings/${id}/processing`, { replace: true });
+    }
     patchMeeting(id, {
       status: meetingQuery.data.status,
       evidence_quality: meetingQuery.data.evidence_quality,
       detected_pattern: meetingQuery.data.detected_pattern?.primary_pattern ?? null,
       last_seen_at: new Date().toISOString(),
     });
-  }, [meetingQuery.data, id]);
+  }, [meetingQuery.data, id, navigate, workspaceId]);
 
   function handleEvidenceClick(segmentId: string) {
     setTab('transcript');

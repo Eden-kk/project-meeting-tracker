@@ -3,6 +3,7 @@ import type { Meeting } from '../api/client';
 type Step = { label: string; state: 'done' | 'active' | 'pending' | 'failed' };
 
 function stepsFor(status: Meeting['status']): Step[] {
+  if (status === 'cancelled') return [{ label: 'Cancelled locally', state: 'failed' }];
   if (status === 'failed') {
     return [
       { label: 'Conversation received', state: 'done' },

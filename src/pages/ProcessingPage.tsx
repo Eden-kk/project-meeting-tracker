@@ -6,6 +6,7 @@ import { queryKeys } from '../api/queryKeys';
 import { POLL_INTERVAL_MS } from '../lib/constants';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { StatusTimeline } from '../components/StatusTimeline';
+import { ImportJobControls } from '../components/ImportJobControls';
 import { patch as patchMeeting } from '../lib/meetingsRegistry';
 
 export default function ProcessingPage() {
@@ -23,7 +24,7 @@ export default function ProcessingPage() {
       // Phase-3 auto-finalize: keep polling through `ready` so we catch
       // the `finalizing → finalized` flip without forcing a manual
       // refresh; stop only at terminal states.
-      if (s === 'finalized' || s === 'failed') return false;
+      if (s === 'finalized' || s === 'failed' || s === 'cancelled') return false;
       return POLL_INTERVAL_MS;
     },
   });
@@ -63,11 +64,14 @@ export default function ProcessingPage() {
     <div className="mx-auto max-w-xl space-y-4">
       <h1 className="text-2xl font-semibold">Processing</h1>
       <StatusTimeline status={status} />
+      {query.data.source_type && ['voice_file', 'transcript_file', 'pasted_transcript'].includes(query.data.source_type)
+        && <ImportJobControls key={id} id={id} />}
+      {status === 'cancelled' && <p>Import cancelled locally.</p>}
       {status === 'failed' && (
         <div className="rounded border border-red-200 bg-red-50 p-4">
           <p className="font-medium text-red-700">Processing failed.</p>
           <Link to={wsHome} className="text-sm text-blue-600 underline">
-            Try again
+            Import a different file
           </Link>
         </div>
       )}

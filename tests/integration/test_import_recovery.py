@@ -142,7 +142,10 @@ def test_simultaneous_claims_have_one_winner(isolated_db, monkeypatch):
     engine = isolated_db.kw["bind"]
 
     def before_execute(conn, cursor, statement, parameters, context, many):
-        if statement.startswith("UPDATE conversation_artifacts") and "RETURNING" in statement:
+        if statement.startswith("SELECT meetings.") and "FOR UPDATE" in statement:
+            # Only synchronize the initial claim, not later completion locks.
+            if "meetings.artifact_id =" not in statement:
+                return
             gate.wait(timeout=5)
 
     def parse(*args, **kwargs):

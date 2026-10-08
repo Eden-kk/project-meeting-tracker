@@ -1,6 +1,7 @@
 import type { StoredMeetingSummary } from '../lib/meetingsRegistry';
 
 const STYLE: Record<StoredMeetingSummary['status'], string> = {
+  cancelled: 'bg-gray-100 text-gray-800',
   live: 'bg-blue-100 text-blue-800',
   processing: 'bg-amber-100 text-amber-800',
   ready: 'bg-green-100 text-green-800',
@@ -10,6 +11,7 @@ const STYLE: Record<StoredMeetingSummary['status'], string> = {
 };
 
 const LABEL: Record<StoredMeetingSummary['status'], string> = {
+  cancelled: 'Cancelled locally',
   live: 'Live',
   processing: 'Processing',
   ready: 'Ready',

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
+from uuid import uuid4
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -10,6 +11,7 @@ from sqlalchemy import select, update
 from storage_router import storage
 from storage_router.db import SessionLocal
 from storage_router.ingest_adapter import parse_transcript, transcribe_voice_file
+from storage_router.import_lifecycle import SUPPORTED, locked_import
 from storage_router.models.contracts import NormalizedTranscript, SpeakerSegment
 from storage_router.models.db import ConversationArtifactRow, MeetingRow, MeetingSourceRow
 from storage_router.sentence_buffer import SentenceBuffer, WhisperSeg
@@ -200,6 +202,7 @@ def process_artifact(
             return
         meeting = session.execute(
             select(MeetingRow).where(MeetingRow.artifact_id == artifact_id)
+            .with_for_update()
         ).scalar_one_or_none()
         if meeting is None or meeting.deleted_at is not None:
             log.warning("dispatcher: no meeting for artifact %s", artifact_id)
@@ -208,14 +211,17 @@ def process_artifact(
 
         # A same-state transition is not a claim. Conditional UPDATE ensures
         # only one worker invokes ingest, including competing recovery scans.
-        if artifact.capture_mode != "imported":
+        if artifact.capture_mode != "imported" or artifact.source_type not in SUPPORTED:
             return
+        attempt = uuid4().hex
         target = "transcribing" if artifact.source_type == "voice_file" else "parsing"
         claimed = session.execute(
             update(ConversationArtifactRow)
             .where(ConversationArtifactRow.id == artifact_id)
             .where(ConversationArtifactRow.processing_status == "received")
-            .values(processing_status=target)
+            .values(processing_status=target, processing_attempt=attempt,
+                    processing_attempts=ConversationArtifactRow.processing_attempts + 1,
+                    processing_error=None)
             .returning(ConversationArtifactRow.id)
         ).scalar_one_or_none()
         if claimed is None:
@@ -260,8 +266,10 @@ def process_artifact(
                 raise ValueError(f"unsupported source_type {artifact.source_type}")
 
             transcript = transcript.model_copy(update={"meeting_id": meeting_id})
+            rows = locked_import(session, meeting_id)
+            if rows is None or rows[1].processing_attempt != attempt:
+                return
             storage.update_processing_status(session, artifact_id, "normalizing")
-            session.commit()
             storage.persist_transcript_segments(session, meeting_id, transcript)
             storage.update_processing_status(session, artifact_id, "ready")
             storage.update_meeting_status(session, meeting_id, "ready")
@@ -270,14 +278,14 @@ def process_artifact(
             log.exception("dispatcher: failed for artifact %s", artifact_id)
             session.rollback()
             try:
-                artifact = session.get(ConversationArtifactRow, artifact_id)
-                if artifact is not None:
-                    artifact.processing_status = "failed"
-                m = session.execute(
-                    select(MeetingRow).where(MeetingRow.artifact_id == artifact_id)
-                ).scalar_one_or_none()
-                if m is not None:
-                    m.status = "failed"
+                rows = locked_import(session, meeting_id)
+                if rows is None or rows[1].processing_attempt != attempt:
+                    return
+                m, artifact = rows
+                artifact.processing_status = "failed"
+                # Never persist exception strings that may contain signed URLs.
+                artifact.processing_error = "Import failed; verify remote job status before retrying."
+                m.status = "failed"
                 session.commit()
             except Exception:
                 log.exception("dispatcher: also failed to mark failed for %s", artifact_id)

@@ -69,6 +69,9 @@ class ConversationArtifactRow(Base):
     processing_status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="received"
     )
+    processing_attempt: Mapped[str | None] = mapped_column(Text)
+    processing_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    processing_error: Mapped[str | None] = mapped_column(Text)
     visibility: Mapped[str] = mapped_column(Text, nullable=False, server_default="private")
     labels: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
 
