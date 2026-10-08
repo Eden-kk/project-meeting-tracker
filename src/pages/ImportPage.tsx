@@ -26,9 +26,9 @@ function classifyFile(file: File): 'voice_file' | 'transcript_file' {
   return 'transcript_file';
 }
 
-function pickSourceType(mode: Mode, file: File | null): StoredMeetingSummary['source_type'] {
-  if (mode === 'paste') return 'pasted_transcript';
-  if (file) return classifyFile(file);
+function pickSourceType(input: ImportInput): StoredMeetingSummary['source_type'] {
+  if (input.voice_file) return 'voice_file';
+  if (input.transcript_file) return 'transcript_file';
   return 'pasted_transcript';
 }
 
@@ -72,7 +72,7 @@ export default function ImportPage() {
 
   const mutation = useMutation({
     mutationFn: (input: ImportInput) => importConversation(input),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
       // Title now lives in Postgres; the registry entry only carries
       // local-only fields (source_type, imported_at) so HomePage can
       // show this row before GET /api/meetings catches up.
@@ -83,13 +83,17 @@ export default function ImportPage() {
         title: '',
         imported_at: now,
         last_seen_at: now,
-        source_type: pickSourceType(mode, file),
+        source_type: pickSourceType(input),
         detected_pattern: null,
         evidence_quality: 'unknown',
         status: 'processing',
-        workspace_id: workspaceId,
+        workspace_id: input.workspace_id,
       });
-      navigate(`/ws/${workspaceId}/meetings/${data.meeting_id}/processing`);
+      // A pending upload belongs to its submitted workspace, even if the user
+      // switches workspaces or edits the form before the request completes.
+      if (workspaceId === input.workspace_id) {
+        navigate(`/ws/${input.workspace_id}/meetings/${data.meeting_id}/processing`);
+      }
     },
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ImportPage from '../ImportPage';
 import * as client from '../../api/client';
@@ -22,6 +22,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/ws/ws_dev/import']}>
+        <Link to="/ws/ws_other/import">Switch workspace</Link>
         <Routes>
           <Route path="/ws/:workspaceId/import" element={<ImportPage />} />
         </Routes>
@@ -87,5 +88,39 @@ describe('ImportPage', () => {
     const fileInput = screen.getByLabelText(/upload file/i) as HTMLInputElement;
     await user.upload(fileInput, big);
     expect(await screen.findByText(/exceeds 100 MB limit/i)).toBeInTheDocument();
+  });
+
+  it('keeps a pending import in its submitted workspace after switching', async () => {
+    let complete!: (value: client.ImportAccepted) => void;
+    vi.spyOn(client, 'importConversation').mockImplementation(() =>
+      new Promise((resolve) => { complete = resolve; }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('tab', { name: /paste transcript/i }));
+    await user.type(screen.getByLabelText(/pasted transcript/i), 'hello');
+    await user.type(screen.getByLabelText(/^title$/i), 'Meeting A');
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+    await user.click(screen.getByRole('link', { name: /switch workspace/i }));
+    complete({ artifact_id: 'a_pending', meeting_id: 'm_pending', processing_status: 'received' });
+    await waitFor(() => expect(getRegistryEntry('m_pending')?.workspace_id).toBe('ws_dev'));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps submitted source type when the form changes while pending', async () => {
+    let complete!: (value: client.ImportAccepted) => void;
+    vi.spyOn(client, 'importConversation').mockImplementation(() =>
+      new Promise((resolve) => { complete = resolve; }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.upload(screen.getByLabelText(/upload file/i),
+      new File(['audio'], 'clip.wav', { type: 'audio/wav' }));
+    await user.type(screen.getByLabelText(/^title$/i), 'Audio');
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+    await user.click(screen.getByRole('tab', { name: /paste transcript/i }));
+    complete({ artifact_id: 'a_voice', meeting_id: 'm_voice', processing_status: 'received' });
+    await waitFor(() => expect(getRegistryEntry('m_voice')?.source_type).toBe('voice_file'));
+    expect(navigateMock).toHaveBeenCalledWith('/ws/ws_dev/meetings/m_voice/processing');
   });
 });
