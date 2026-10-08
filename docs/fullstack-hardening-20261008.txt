@@ -1,0 +1,67 @@
+Meeting Tracker full-stack hardening — 2026-10-08
+
+Scope and baseline
+Original repository: https://github.com/Eden-kk/project-meeting-tracker
+Existing code already includes React/TypeScript, FastAPI, SQLAlchemy,
+PostgreSQL migrations, transcript/audio ingestion and a workspace UI.
+Do not replace this application with an unrelated full-stack template.
+Presence of code establishes repository capabilities, not authorship of
+every line or verified production operation.
+
+Implemented in this local increment
+1. Import completion uses submitted mutation variables, not mutable form
+   state. Changing workspace during an upload no longer misattributes the
+   local registry entry or navigates into the wrong workspace. Changing
+   upload/paste mode during the request preserves original source type.
+2. Live audio's async voice adapter uses HTTPX AsyncClient instead of a
+   blocking POST inside asyncio.to_thread. Caller cancellation propagates
+   to local HTTP waiting and closes the owned client/file context.
+3. A total asyncio deadline covers the POST and Modal-style 303 polling.
+   HTTP failures/timeouts are not retried automatically: accepted upstream
+   work could continue, and retry could duplicate expensive inference.
+
+Reproduction (offline synthetic input, no credentials or paid inference)
+  uv venv .venv-local --python python3.12
+  uv pip install --python .venv-local/bin/python -e '.[dev]'
+  .venv-local/bin/python -m pytest tests/unit/test_async_voice_adapter.py -q
+  pnpm install --frozen-lockfile --ignore-scripts
+  pnpm test src/pages/__tests__/ImportPage.test.tsx
+  pnpm build
+
+Environment note
+The original repository tracked a node_modules symlink pointing to an
+absent sibling worktree. This increment removes that tracked link so
+pnpm can install local ignored dependencies. The original link is backed
+up locally at .git/original-node-modules-link. The legacy .venv link is
+unchanged; the fresh .venv-local environment is used for tests.
+
+Boundaries
+- Local tests use an HTTP mock transport; no remote GPU cancellation,
+  latency improvement, throughput, or live deployment has been proven.
+- Only the async live-chunk adapter changed; imported audio's synchronous
+  dispatcher remains unchanged. Browser disconnect does not automatically
+  guarantee ASGI task cancellation, nor does closing HTTP stop a remote job.
+- Upload/import still uses in-process BackgroundTasks rather than durable
+  workers. Process crashes can lose pending work.
+- workspace_id is not authentication/authorization. Do not claim secure
+  multi-tenancy or expose private data publicly until identity and access
+  checks are implemented and tested across all object endpoints.
+- Existing tests/storage_router/conftest.py truncates configured database
+  tables. Never point that suite at user/deployed data; use an isolated
+  disposable test database. This increment does not run that suite.
+
+Remaining acceptance queue (not completed)
+1. Authenticated principals + workspace membership checks for object reads,
+   writes, searches and ingestion; two-user cross-workspace denial tests.
+2. Persisted jobs with attempt IDs, worker leases/recovery and idempotency
+   keys. Duplicate upload and worker restart tests before automatic retry.
+3. Explicit UI states for queued/running/failed/cancelled jobs, retry controls
+   and cancellation semantics that distinguish local wait from remote abort.
+4. Disposable PostgreSQL migration/integration test setup and CI regression
+   gates. Fix stale existing tests without weakening production contracts.
+5. Synthetic browser E2E and separately approved live inference demo;
+   cold/warm latency measurements with raw data, sample counts and versions.
+
+No resume PDF, job application, remote service or public repository was
+modified by this increment. Completed work can be described as a local
+reliability extension; queued features must not be listed as completed.
