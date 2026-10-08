@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from storage_router import dispatcher, hermes_runtime, import_worker
+from storage_router import db, dispatcher, hermes_runtime, import_worker
 from storage_router.api import app as app_module, import_route, import_jobs_route
 from storage_router.models.db import Base, User, Workspace
 
@@ -46,7 +46,7 @@ def isolated_db(monkeypatch, request):
                 session.add(Workspace(id="ws_dev", name="Synthetic tests"))
                 session.flush()
                 session.add(User(id="u_dev", workspace_id="ws_dev", email="test@example.invalid"))
-        for module in (dispatcher, import_worker, import_route, import_jobs_route):
+        for module in (db, dispatcher, import_worker, import_route, import_jobs_route):
             monkeypatch.setattr(module, "SessionLocal", factory)
         monkeypatch.setattr(app_module, "engine", engine)
         monkeypatch.setattr(hermes_runtime, "auto_finalize_meeting", lambda _: None)

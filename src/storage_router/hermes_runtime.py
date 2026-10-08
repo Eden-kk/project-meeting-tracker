@@ -154,7 +154,7 @@ def _finalize_inner(meeting_id: str) -> None:
         meeting = session.execute(
             select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
         ).scalar_one_or_none()
-        if meeting is None:
+        if meeting is None or meeting.deleted_at is not None:
             log.warning("auto_finalize_meeting: meeting %s missing", meeting_id)
             return
         if meeting.status != "ready":
@@ -171,15 +171,15 @@ def _finalize_inner(meeting_id: str) -> None:
 
     try:
         result = run_meeting_finalization(meeting_id)
-    except Exception as exc:  # noqa: BLE001 — fire-and-forget surface.
+    except Exception:  # noqa: BLE001 — fire-and-forget surface.
         log.exception(
             "auto_finalize_meeting: hermes call failed (meeting=%s)", meeting_id
         )
         with SessionLocal() as session:
-            meeting = session.get(MeetingRow, meeting_id)
-            if meeting is not None:
+            meeting = session.scalar(select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update())
+            if meeting is not None and meeting.deleted_at is None and meeting.status == "finalizing":
                 meeting.status = "ready"
-                meeting.last_finalize_error = str(exc)[:1000]
+                meeting.last_finalize_error = "Finalization failed. Check server logs before retrying."
                 session.commit()
         return
 
@@ -187,7 +187,9 @@ def _finalize_inner(meeting_id: str) -> None:
         with SessionLocal() as session:
             meeting = session.execute(
                 select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update()
-            ).scalar_one()
+            ).scalar_one_or_none()
+            if meeting is None or meeting.deleted_at is not None or meeting.status != "finalizing":
+                return
 
             cards_in = [MemoryCardCreate(**c) for c in result.get("cards", [])]
             for card in cards_in:
@@ -229,15 +231,15 @@ def _finalize_inner(meeting_id: str) -> None:
                     workspace.last_meeting_at = meeting.finalized_at
 
             session.commit()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         log.exception(
             "auto_finalize_meeting: persistence failed (meeting=%s)", meeting_id
         )
         with SessionLocal() as session:
-            meeting = session.get(MeetingRow, meeting_id)
-            if meeting is not None:
+            meeting = session.scalar(select(MeetingRow).where(MeetingRow.id == meeting_id).with_for_update())
+            if meeting is not None and meeting.deleted_at is None and meeting.status == "finalizing":
                 meeting.status = "ready"
-                meeting.last_finalize_error = f"persist_failed: {exc}"[:1000]
+                meeting.last_finalize_error = "Finalization persistence failed. Check server logs before retrying."
                 session.commit()
 
 
