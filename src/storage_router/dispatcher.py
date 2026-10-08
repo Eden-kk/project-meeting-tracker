@@ -5,13 +5,13 @@ import logging
 import urllib.parse
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from storage_router import storage
 from storage_router.db import SessionLocal
 from storage_router.ingest_adapter import parse_transcript, transcribe_voice_file
 from storage_router.models.contracts import NormalizedTranscript, SpeakerSegment
-from storage_router.models.db import ConversationArtifactRow, MeetingRow
+from storage_router.models.db import ConversationArtifactRow, MeetingRow, MeetingSourceRow
 from storage_router.sentence_buffer import SentenceBuffer, WhisperSeg
 
 log = logging.getLogger(__name__)
@@ -201,15 +201,40 @@ def process_artifact(
         meeting = session.execute(
             select(MeetingRow).where(MeetingRow.artifact_id == artifact_id)
         ).scalar_one_or_none()
-        if meeting is None:
+        if meeting is None or meeting.deleted_at is not None:
             log.warning("dispatcher: no meeting for artifact %s", artifact_id)
             return
         meeting_id = meeting.id
 
+        # A same-state transition is not a claim. Conditional UPDATE ensures
+        # only one worker invokes ingest, including competing recovery scans.
+        if artifact.capture_mode != "imported":
+            return
+        target = "transcribing" if artifact.source_type == "voice_file" else "parsing"
+        claimed = session.execute(
+            update(ConversationArtifactRow)
+            .where(ConversationArtifactRow.id == artifact_id)
+            .where(ConversationArtifactRow.processing_status == "received")
+            .values(processing_status=target)
+            .returning(ConversationArtifactRow.id)
+        ).scalar_one_or_none()
+        if claimed is None:
+            return
+        # The original import transaction persists hints for restart recovery.
+        source = session.execute(
+            select(MeetingSourceRow)
+            .where(MeetingSourceRow.meeting_id == meeting_id)
+            .order_by(MeetingSourceRow.created_at, MeetingSourceRow.id)
+            .limit(1)
+        ).scalar_one_or_none()
+        hints = source.metadata_ if source and source.metadata_ else {}
+        num_speakers = hints.get("num_speakers", num_speakers)
+        min_speakers = hints.get("min_speakers", min_speakers)
+        max_speakers = hints.get("max_speakers", max_speakers)
+        session.commit()
+
         try:
             if artifact.source_type == "voice_file":
-                storage.update_processing_status(session, artifact_id, "transcribing")
-                session.commit()
                 transcript = transcribe_voice_file(
                     _path_from_file_url(artifact.raw_file_url),
                     num_speakers=num_speakers,
@@ -220,16 +245,12 @@ def process_artifact(
                 # multi-sentence whisper chunks. See `api/live_route.receive_chunk`.
                 transcript = _split_transcript_per_sentence(transcript)
             elif artifact.source_type == "transcript_file":
-                storage.update_processing_status(session, artifact_id, "parsing")
-                session.commit()
                 transcript = parse_transcript(
                     artifact.raw_text,
                     format=_detect_format(artifact.raw_text or ""),
                     source_type="transcript_file",
                 )
             elif artifact.source_type == "pasted_transcript":
-                storage.update_processing_status(session, artifact_id, "parsing")
-                session.commit()
                 transcript = parse_transcript(
                     artifact.raw_text,
                     format=_detect_format(artifact.raw_text or ""),

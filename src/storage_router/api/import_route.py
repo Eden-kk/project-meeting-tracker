@@ -101,6 +101,11 @@ async def import_conversation(
                 id=new_id("ms"),
                 meeting_id=meeting.id,
                 source_kind=source_kind,
+                metadata_={
+                    "num_speakers": num_speakers,
+                    "min_speakers": min_speakers,
+                    "max_speakers": max_speakers,
+                },
             )
         )
         session.commit()
