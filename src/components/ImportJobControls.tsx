@@ -37,7 +37,7 @@ export function ImportJobControls({ id }: { id: string }) {
   if (!retryable && !cancellable) return null;
   return (
     <section className="space-y-3 rounded border p-4" aria-label="Import controls">
-      <p>Attempts: {job.data.attempts}</p>
+      <p>Attempts: {job.data.attempts} <span className="text-sm text-gray-500">(minimum for legacy imports)</span></p>
       {job.data.error && <p>{job.data.error}</p>}
       <p className="text-sm text-gray-600">Cancellation stops accepting results locally. It does not stop remote computation or billing.</p>
       {retryable && <>

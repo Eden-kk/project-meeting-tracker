@@ -1,5 +1,11 @@
 Meeting Tracker full-stack hardening — 2026-10-08
 
+CURRENT ACCEPTANCE: LOCAL DEMO COMPLETE (2026-10-08)
+User selected a locally demonstrable, reproducibly tested, resume-material
+version rather than production deployment. Latest evidence supersedes the
+historical increment queues below. No public push or production deployment.
+See docs/local-demo-runbook.txt for reproduction and current boundaries.
+
 Scope and baseline
 Original repository: https://github.com/Eden-kk/project-meeting-tracker
 Existing code already includes React/TypeScript, FastAPI, SQLAlchemy,
@@ -50,7 +56,7 @@ Boundaries
   tables. Never point that suite at user/deployed data; use an isolated
   disposable test database. This increment does not run that suite.
 
-Remaining acceptance queue (not completed)
+Historical backlog after first increment (see current acceptance above)
 1. Authenticated principals + workspace membership checks for object reads,
    writes, searches and ingestion; two-user cross-workspace denial tests.
 2. Persisted jobs with attempt IDs, worker leases/recovery and idempotency
@@ -111,7 +117,7 @@ fixture rejects non-local hosts, alternate DB names, drivers and URL query
 overrides; it does not import the old truncating fixture. Without this env
 variable integration tests SKIP, which is not a passing DB verification.
 
-Remaining limits / next work:
+Historical limits after second increment (third increment below supersedes):
 - A crash after claim is ambiguous: records stay parsing/transcribing/
   normalizing for operator investigation. This is NOT general crash retry,
   exactly-once remote inference, a lease-based queue, or high availability.
@@ -124,3 +130,44 @@ Remaining limits / next work:
 - Existing delete/ingest races are not solved by filtering already-deleted
   records. Do not generalize the claim mechanism into attempt reassignment
   without fencing tokens and conditional completion/failure writes.
+
+THIRD INCREMENT — local lifecycle complete, not production readiness
+- Added UUID attempt fencing, attempt count and sanitized processing errors.
+- Cancel invalidates ownership; stale success/failure cannot write after
+  cancel/retry. Meeting-first row locks serialize retry, cancel and deletion.
+- Segment publication and ready-state changes commit atomically.
+- Explicit retry only for failed/cancelled imports; any started attempt
+  requires remote-stop confirmation. No automatic ambiguous inference retry.
+- Added GET import-job, POST cancel/retry, React controls, confirmation gate,
+  pending buttons, ambiguous-response reconciliation and cancelled status.
+- Library links to incomplete meetings return to processing controls.
+- Legacy started imports are conservatively backfilled to >=1 attempt;
+  count is a lower bound for legacy rows, not a recovered attempt history.
+- Auto-finalization of imported meetings now checks deletion before model
+  invocation and before publication/error persistence. An already running
+  model is not stopped by deleting/cancelling a local meeting.
+- Full migration and legacy downgrade/upgrade tests pass. Downgrade rejects
+  cancelled rows rather than rewriting historical records silently.
+
+Final evidence (2026-10-08)
+- 34 Python tests: 29 isolated PostgreSQL integration + 5 mocked async HTTP.
+- Full frontend suite: 132 tests across 31 files passed; existing router
+  future warnings and some legacy test network-error logs remain.
+- TypeScript + Vite production build passed; focused Ruff/diff checks passed.
+- Real Chrome -> built React -> FastAPI -> PostgreSQL browser flow passed
+  twice: import, cancel, reopen through review link, confirm retry, six-row
+  transcript review. Model calls are deterministic fixture substitutes.
+- Local screenshots inspected: cancelled controls and transcript review
+  render without overlap/clipping at the tested desktop viewport.
+- Independent review findings (legacy attempt backfill, library navigation,
+  test typing) were fixed before final validation.
+- Final browser suite: 2 tests passed, including exact demo API allowlist
+  verification so exploring other SPA sections cannot invoke paid models.
+- Fixed Uvicorn SIGTERM re-raise bypassing cleanup. After the final browser
+  run, PostgreSQL reported zero demo_/test_ schemas. Earlier synthetic
+  leftover schemas were explicitly removed, with no application data touched.
+
+Not claimed: remote GPU abort, exactly-once model execution, secure tenancy,
+production deployment, cloud-scale benchmarks, automatic in-flight recovery,
+CI cloud execution, real audio quality or latency improvements. Live path
+finalization and broad historical backend suites were not audited here.

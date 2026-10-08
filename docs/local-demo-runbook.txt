@@ -1,0 +1,74 @@
+Meeting Tracker: local reliability demo and reproduction
+Accepted scope: local full-stack demo, reproducible tests, resume evidence.
+No production service, real model inference or personal audio is required.
+
+Prerequisites
+- Python 3.12, Node.js 20+, pnpm (validated 10.30.3), PostgreSQL 16.
+- A disposable loopback PostgreSQL DB named exactly meeting_hardening_test.
+- Do not use an existing application database or private recordings.
+- Create only the disposable database if missing, using your local PG tools:
+  createdb -h 127.0.0.1 -p YOUR_PORT -U YOUR_LOCAL_ROLE meeting_hardening_test
+- Export MEETING_TEST_DATABASE_URL with that actual local role and port:
+  export MEETING_TEST_DATABASE_URL='postgresql+psycopg://YOUR_LOCAL_ROLE@127.0.0.1:YOUR_PORT/meeting_hardening_test'
+  The variable is mandatory; query overrides, other DB names and remote hosts
+  are rejected. Python tests without it skip DB cases, which is not a pass.
+
+Setup from repository root
+  python3.12 -m venv .venv-local
+  .venv-local/bin/python -m pip install -e '.[dev]'
+  COREPACK_ENABLE_AUTO_PIN=0 pnpm install --frozen-lockfile --ignore-scripts
+
+Verify
+  .venv-local/bin/python -m pytest tests/integration tests/unit -q
+  COREPACK_ENABLE_AUTO_PIN=0 pnpm test
+  COREPACK_ENABLE_AUTO_PIN=0 pnpm build
+
+Browser verification (Google Chrome installed locally)
+  PLAYWRIGHT_CHANNEL=chrome COREPACK_ENABLE_AUTO_PIN=0 pnpm exec playwright test --config playwright.hardening.config.ts
+Alternative: install Playwright Chromium, omit PLAYWRIGHT_CHANNEL.
+DEMO_PYTHON can override .venv-local/bin/python for CI/custom environments.
+The dedicated config refuses an existing server; it starts and shuts down
+only its loopback demo server. Do not run the unrelated legacy E2E config.
+The harness exposes only an explicit import/read/control API allowlist;
+Q&A, follow-up, live and Zoom routes are disabled even if credentials exist
+in .env.local. Other SPA sections are outside this focused demo.
+Screenshots are under test-results/import-lifecycle-*/ (ignored by Git).
+
+Manual demo
+  .venv-local/bin/python scripts/local_import_demo.py
+  Open http://127.0.0.1:18765/ws/ws_dev/import
+  Choose Paste transcript, enter a title and any synthetic text, Submit.
+  Cancel while processing. Expect Cancelled locally and retry confirmation.
+  Wait more than 3 seconds: the demo's fixed fake request is now finished.
+  Confirm the previous remote job stopped, Retry import, inspect transcript.
+  In a real provider integration, waiting 3 seconds is NOT evidence of stop.
+  The demo deliberately ignores input content and returns six fixture rows;
+  it proves workflow correctness, not transcription accuracy or performance.
+  Ctrl-C stops the server and drops only its uniquely named demo_<uuid>
+  schema and temporary upload directory. SIGKILL/power loss can leave them; do not broadly delete
+  database schemas to clean it up. No application tables are truncated.
+
+Operational semantics
+- BackgroundTasks is fast path; a separately run import_worker recovers
+  received jobs if scheduling was lost. Both need the same DB/blob mount.
+- A claimed crash remains ambiguous. Inspect the provider, cancel locally,
+  and only explicitly retry after confirming the old request stopped.
+- UUID fencing prevents an old response/error overwriting a newer attempt;
+  it cannot prevent duplicate provider cost if stop is incorrectly confirmed.
+- Cancel/delete does not abort remote model computation. Local async HTTP
+  cancellation only stops waiting/cleans the owned HTTP resources.
+- There is no lease-based automatic retry, upload-idempotency key, detailed
+  attempt event history, production authentication or secure tenant isolation.
+- Finalization has its own ready->background scheduling/crash window; no
+  automatic LLM retry was added. Do not label the demo production-ready.
+
+Rollout boundary (not performed)
+Stop old API/workers before applying migration 0026 and starting new code;
+pre-fencing workers cannot obey the new ownership protocol. Back up the
+actual DB first. Keep local-only until identity/membership checks cover all
+object routes, and validate live inference separately with explicit budget.
+
+Acceptance evidence
+34 Python tests, 132 frontend tests, TypeScript/Vite build, two browser tests
+(offline route guard and full-stack lifecycle) passed. Model output synthetic; no cloud
+deploy, public push, paid inference or measured quality/latency improvements.
