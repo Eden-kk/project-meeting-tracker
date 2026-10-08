@@ -41,8 +41,8 @@ Boundaries
 - Only the async live-chunk adapter changed; imported audio's synchronous
   dispatcher remains unchanged. Browser disconnect does not automatically
   guarantee ASGI task cancellation, nor does closing HTTP stop a remote job.
-- Upload/import still uses in-process BackgroundTasks rather than durable
-  workers. Process crashes can lose pending work.
+- BackgroundTasks is a fast path; the optional import_worker added below
+  recovers committed received rows. Already-claimed work is not replayed.
 - workspace_id is not authentication/authorization. Do not claim secure
   multi-tenancy or expose private data publicly until identity and access
   checks are implemented and tested across all object endpoints.
@@ -65,3 +65,62 @@ Remaining acceptance queue (not completed)
 No resume PDF, job application, remote service or public repository was
 modified by this increment. Completed work can be described as a local
 reliability extension; queued features must not be listed as completed.
+
+SECOND INCREMENT — durable pending imports and exclusive claims
+Implemented and tested 2026-10-08:
+- Committed imported artifacts in received state are the pending queue.
+  A separate polling worker can recover rows if the API exits before its
+  BackgroundTasks callback runs. No additional broker or schema is needed.
+- The dispatcher uses conditional UPDATE WHERE status=received RETURNING
+  as an exclusive claim, commits before ingestion, and returns immediately
+  for a losing claim. Two workers cannot start inference for the same row.
+- num/min/max speaker hints are persisted in meeting_sources metadata in
+  the original transaction and restored by the worker.
+- Final segment insertion and ready states retain one transaction; an
+  insertion failure rolls back partial output before marking failure.
+- Deleted, live, unsupported, in-flight and terminal records are excluded
+  from recovery. Failed/in-flight records are never automatically reset.
+- Fixed pre-existing clean-install migration failure: revision 0023 exceeds
+  Alembic's default VARCHAR(32). Widen version_num before recording it,
+  preserving existing revision names and deployed revision history.
+
+Operator usage (only against a configured development environment):
+  .venv-local/bin/python -m storage_router.import_worker --once
+  .venv-local/bin/python -m storage_router.import_worker --poll-seconds 5
+Worker and API need identical DATABASE_URL, INGEST_BACKEND and blob mount.
+The worker is not automatically started by the API and was not deployed.
+One worker processes a bounded batch sequentially; batch count reports
+candidates, not successful completions. A supervisor is needed for uptime.
+
+Fresh database verification:
+- PostgreSQL 16.15, temporary local cluster, not existing application data.
+- 14 integration cases passed on real PostgreSQL; one starts from the full
+  Alembic migration chain instead of ORM create_all. Coverage includes
+  simultaneous claims, missed scheduling, speaker hint recovery, failed
+  ingest, simulated termination after claim, segment rollback, deleted/live
+  exclusions and no terminal replay. Model/LLM calls are mocked.
+- 5 offline async transport tests passed (19 Python tests total).
+- 9 ImportPage/ProcessingPage tests passed; TypeScript/Vite build passed.
+- Independent read-only review checked exclusive claims and fixture safety.
+
+Reproduce database tests with an explicitly disposable local database:
+  MEETING_TEST_DATABASE_URL=postgresql+psycopg://USER@127.0.0.1:PORT/meeting_hardening_test \
+    .venv-local/bin/python -m pytest tests/integration tests/unit -q
+Each test creates and drops only its own random test_<uuid> schema. The
+fixture rejects non-local hosts, alternate DB names, drivers and URL query
+overrides; it does not import the old truncating fixture. Without this env
+variable integration tests SKIP, which is not a passing DB verification.
+
+Remaining limits / next work:
+- A crash after claim is ambiguous: records stay parsing/transcribing/
+  normalizing for operator investigation. This is NOT general crash retry,
+  exactly-once remote inference, a lease-based queue, or high availability.
+- Uploaded audio must survive API restart and be readable by the worker;
+  LocalFsBlobStore does not provide cross-host durability.
+- Auto-finalize has a separate crash window after transcript ready commit;
+  no automatic LLM re-execution was added.
+- No manual attempt history, retry/cancel UI, upstream abort or identity/
+  membership authorization is implemented in this increment.
+- Existing delete/ingest races are not solved by filtering already-deleted
+  records. Do not generalize the claim mechanism into attempt reassignment
+  without fencing tokens and conditional completion/failure writes.

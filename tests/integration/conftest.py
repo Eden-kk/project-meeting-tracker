@@ -1,6 +1,9 @@
 """Isolated PostgreSQL schemas; never use the application's configured DB."""
 import os
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -13,7 +16,7 @@ from storage_router.models.db import Base, User, Workspace
 
 
 @pytest.fixture
-def isolated_db(monkeypatch):
+def isolated_db(monkeypatch, request):
     value = os.environ.get("MEETING_TEST_DATABASE_URL")
     if not value:
         pytest.skip("set MEETING_TEST_DATABASE_URL to a disposable local PostgreSQL")
@@ -29,11 +32,20 @@ def isolated_db(monkeypatch):
     engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
     factory = sessionmaker(engine, expire_on_commit=False)
     try:
-        Base.metadata.create_all(engine)
+        if getattr(request, "param", None) == "migrations":
+            subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=Path(__file__).parents[2],
+                env={**os.environ, "DATABASE_URL": value, "PGOPTIONS": f"-csearch_path={schema}"},
+                check=True, capture_output=True, text=True,
+            )
+        else:
+            Base.metadata.create_all(engine)
         with factory.begin() as session:
-            session.add(Workspace(id="ws_dev", name="Synthetic tests"))
-            session.flush()
-            session.add(User(id="u_dev", workspace_id="ws_dev", email="test@example.invalid"))
+            if session.get(Workspace, "ws_dev") is None:
+                session.add(Workspace(id="ws_dev", name="Synthetic tests"))
+                session.flush()
+                session.add(User(id="u_dev", workspace_id="ws_dev", email="test@example.invalid"))
         for module in (dispatcher, import_worker, import_route):
             monkeypatch.setattr(module, "SessionLocal", factory)
         monkeypatch.setattr(app_module, "engine", engine)

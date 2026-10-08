@@ -198,3 +198,12 @@ def test_worker_ignores_live_and_unsupported_artifacts(isolated_db, monkeypatch)
         session.get(ConversationArtifactRow, aid).capture_mode = "live"
     monkeypatch.setattr(import_worker, "process_artifact", lambda *a: pytest.fail("unexpected dispatch"))
     assert import_worker.run_once() == 0
+
+
+@pytest.mark.parametrize("isolated_db", ["migrations"], indirect=True)
+def test_recovery_on_fresh_alembic_schema(isolated_db, monkeypatch):
+    aid, mid = seed(isolated_db)
+    monkeypatch.setattr(dispatcher, "parse_transcript", lambda *a, **k: transcript())
+    assert import_worker.run_once() == 1
+    assert statuses(isolated_db, aid, mid) == ("ready", "ready")
+    assert import_worker.run_once() == 0

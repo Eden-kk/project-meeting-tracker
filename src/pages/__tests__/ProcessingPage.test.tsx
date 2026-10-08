@@ -44,6 +44,10 @@ describe('ProcessingPage', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     vi.restoreAllMocks();
+    vi.spyOn(client, 'listWorkspaces').mockResolvedValue({
+      items: [{ id: 'ws_dev', name: 'Default', description: null, last_meeting_at: null }],
+      total: 1,
+    });
   });
 
   it('renders Transcribing/parsing as active when meeting is processing', async () => {

@@ -14,6 +14,9 @@ def _sql(name: str) -> str:
 
 
 def upgrade() -> None:
+    # Preserve deployed revision IDs while allowing this >32-character ID
+    # to be recorded on a fresh database after the migration completes.
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
     op.execute(_sql("0023_workspaces_orchestrator_fields.sql"))
 
 
